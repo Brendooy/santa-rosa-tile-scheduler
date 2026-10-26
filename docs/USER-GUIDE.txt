@@ -1,0 +1,92 @@
+SANTA ROSA TILE SCHEDULER  -  USER GUIDE
+=========================================
+
+ONE MANAGER AT A TIME
+  Each computer keeps its own copy of the data. Changes made on one computer do
+  NOT appear on another unless you Export on one and Import on the other.
+  Decide which computer is the "master" and do the scheduling there.
+
+THE SCHEDULE TAB
+  - Use the arrows to move between weeks (Monday to Saturday).
+  - Click a cell and type: 8-5   7:30-4:30   10-3   (times 1-6 mean afternoon)
+        7:30        a start time alone means "start to closing"
+        OFF         day off
+        PTO         paid time off
+        IN LATE     comes in later than opening, works to closing
+    Press Enter to move down, Tab to move right. Autocomplete suggests common shifts.
+  - Cell colours: grey = OFF, yellow = PTO, light blue = IN LATE, red = a problem
+    (hover for the reason).
+  - "Coverage" rows under each location show: Warehouse and Showroom (enough people
+    qualified for each are on the floor all day) and min (fewest people on the floor).
+  - Under the grid: "Problems to fix" (these block publishing) and "Warnings".
+  - Support row: type names of support staff for each day.
+
+CHECKS (what counts as a problem)
+  - A cell is empty or not understood.
+  - Someone is scheduled on a day they have PTO, a day they are unavailable, before
+    their earliest time or after their latest time, or when the store is closed.
+  - Not enough Warehouse or Showroom coverage at some time of the day. One person
+    can only fill one position at a time, even if qualified for both.
+  - No keyholder at opening or at closing. A keyholder (ticked on the Staff tab) must
+    be working when the store opens and when it closes. This check stays off until at
+    least one person at that location is marked keyholder.
+  Warnings (do not block): fewer people than the store minimum mid-day, a person
+  over their max days/hours, a shift well outside store hours, PTO marked OFF.
+
+AUTO-FILL
+  Fills the week from each person's availability, usual shift, target days per
+  week, qualifications and PTO, then repairs keyholder/Warehouse/Showroom/staffing gaps.
+  If the week already has entries you choose: fill empty cells only, or rebuild.
+  It tells you about anything it could not cover. Always review the result;
+  every cell can still be edited. "Copy last week" copies the previous week.
+
+DRAFT AND FINAL
+  New weeks are DRAFT. "Publish as final" is allowed only when there are no
+  problems (warnings need a confirmation). A final week is locked; "Reopen as
+  draft" unlocks it. Publishing does not send anything anywhere: use Print or
+  Save PDF to give the schedule to employees. Drafts print with a DRAFT mark.
+
+STAFF TAB
+  Name, location, active, can work Warehouse / Showroom, keyholder, target and max days per week,
+  max hours, and per-day availability (available, earliest start, latest end,
+  usual shift, prefer-off). Untick "Active" to hide someone without losing history.
+
+STORE RULES TAB
+  Opening/closing times for each day, default shifts, how many people must be on
+  the floor, how many Warehouse and Showroom people are required, unpaid lunch, and
+  the printed title.
+
+TIME OFF & GOOGLE TAB
+  - Time off can be typed in here (works offline) and/or imported from a Google
+    Calendar. Imported time off is stored on this computer and used offline.
+  - Connect: click "Connect Google Calendar"; your browser opens; sign in and allow
+    READ-ONLY access. Choose the calendar(s) that hold time off. Then "Refresh time
+    off now". Needs internet.
+  - An ALL-DAY calendar event whose title contains an employee's name (for example
+    "Brendan off" or "Haley vacation") becomes time off for those dates.
+    If the title says "works" (for example "Brendan Works") it is an EXTRA WORK DAY,
+    not time off: that day's availability is ignored, Auto-fill schedules them, and
+    you get a warning if they are marked OFF. Timed events (appointments) are ignored. Events that match nobody are listed so you
+    can fix a spelling.
+  - The page and the Schedule tab show when time off was last refreshed. If a
+    refresh fails, your existing time off is kept and a red banner says so.
+    Time off added in Google since the last refresh will NOT show until you refresh.
+
+DATA & BACKUPS TAB
+  - Export All Data / Import Data: move everything to another computer. Import
+    shows what will be replaced, asks you to confirm, and backs up your current
+    data first.
+  - Backups are made automatically when the app starts and closes and every few
+    hours if something changed (newest 30 kept). "Restore..." brings one back
+    (after backing up the current data).
+  - If the data file is ever damaged, the app loads the newest backup and tells you.
+
+PRINTING
+  Print opens the Windows print dialog (landscape, one page). Save PDF writes a
+  PDF file you can email or text.
+
+SAMPLE DATA
+  On first start the app contains the staff and the week of 26 October from the
+  posted schedule. Warehouse/Showroom qualifications (everyone starts with both), store hours, minimum
+  staffing and target days were GUESSED from that photo. Please review them on the
+  Staff and Store rules tabs before relying on Auto-fill.

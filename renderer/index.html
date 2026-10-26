@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Santa Rosa Tile Scheduler</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand">Santa Rosa Tile<br><span>Scheduler</span></div>
+  <nav id="tabs" role="tablist">
+    <button role="tab" data-tab="schedule" class="on">Schedule</button>
+    <button role="tab" data-tab="staff">Staff</button>
+    <button role="tab" data-tab="pto">Time off &amp; Google</button>
+    <button role="tab" data-tab="rules">Store rules</button>
+    <button role="tab" data-tab="data">Data &amp; backups</button>
+  </nav>
+  <div id="saveState" class="save" role="status" aria-live="polite">Loading…</div>
+</header>
+<div id="banner"></div>
+<main id="view"></main>
+<div id="modalRoot"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="../src/logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

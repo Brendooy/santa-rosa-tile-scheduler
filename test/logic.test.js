@@ -1,0 +1,172 @@
+const assert = require('assert');
+const L = require('../src/logic');
+const { initialData } = require('../src/defaults');
+
+let n = 0; const t = (name, fn) => { try { fn(); n++; console.log('ok  ', name); } catch (e) { console.error('FAIL', name, '\n    ', e.message); process.exitCode = 1; } };
+
+t('parseCell basics', () => {
+  assert.deepStrictEqual(L.parseCell('8-5'), { kind: 'shift', start: 480, end: 1020, openEnded: false });
+  assert.strictEqual(L.parseCell('7:30-4:30').end, 16 * 60 + 30);
+  assert.strictEqual(L.parseCell('10-3').end, 15 * 60);
+  assert.strictEqual(L.parseCell('7:30').openEnded, true);
+  assert.strictEqual(L.parseCell('in late').kind, 'late');
+  assert.strictEqual(L.parseCell('off').kind, 'off');
+  assert.strictEqual(L.parseCell('').kind, 'blank');
+  assert.strictEqual(L.parseCell('banana').kind, 'invalid');
+  assert.strictEqual(L.parseCell('5-8').kind, 'shift'); // 5pm-8pm
+});
+
+t('dates', () => {
+  assert.strictEqual(L.mondayOf('2026-10-31'), '2026-10-26');
+  assert.strictEqual(L.mondayOf('2026-10-26'), '2026-10-26');
+  assert.strictEqual(L.dayLabel('2026-10-26'), '26 October');
+  assert.strictEqual(L.addDays('2026-10-30', 3), '2026-11-02');
+});
+
+const d = initialData(); const wk = d.schedules['2026-10-26'];
+const byName = n => d.employees.find(e => e.name === n);
+
+t('the photographed week validates with no errors', () => {
+  const errs = L.validate(wk, d.employees, [], d.settings).filter(i => i.severity === 'error');
+  assert.deepStrictEqual(errs.map(e => e.msg), []);
+});
+
+t('PTO on a worked day is an error', () => {
+  const pto = [{ id: 'x', empId: byName('Brendan').id, start: '2026-10-28', end: '2026-10-28', note: 'PTO' }];
+  const errs = L.validate(wk, d.employees, pto, d.settings).filter(i => i.severity === 'error');
+  assert.ok(errs.some(e => /Brendan Wednesday.*PTO/.test(e.msg)), JSON.stringify(errs));
+});
+
+t('missing Warehouse / Showroom coverage detected', () => {
+  const emps = JSON.parse(JSON.stringify(d.employees));
+  emps.filter(e => e.location === 'Santa Rosa').forEach(e => { e.canShowroom = e.name === 'Brinley'; }); // only Brinley (7:30-2) can do Showroom
+  const msgs = L.validate(wk, emps, [], d.settings).map(i => i.msg);
+  assert.ok(msgs.some(m => /Santa Rosa Tuesday: not enough Showroom coverage/.test(m)), msgs.join(' | '));
+  assert.ok(!msgs.some(m => /not enough Warehouse/.test(m)));
+  // one person qualified for both cannot fill both positions at once
+  const two = JSON.parse(JSON.stringify(d.employees));
+  two.forEach(e => { if (e.location === 'Ukiah') { e.canWarehouse = e.name === 'Cameron'; e.canShowroom = e.name === 'Cameron'; } });
+  assert.ok(L.validate(wk, two, [], d.settings).some(i => /Ukiah Monday: not enough/.test(i.msg)));
+});
+
+t('keyholder required at opening and closing', () => {
+  // nobody marked keyholder -> rule is not enforced yet
+  assert.ok(!L.validate(wk, d.employees, [], d.settings).some(i => /keyholder/.test(i.msg)));
+  const emps = JSON.parse(JSON.stringify(d.employees));
+  const sr = emps.filter(e => e.location === 'Santa Rosa');
+  const [a, b] = [sr.find(e => e.name === 'Brinley'), sr.find(e => e.name === 'Denis')];
+  a.keyholder = true; // Brinley works 7:30-2 on Tuesday: opens, but nobody keyed closes
+  const msgs = L.validate(wk, emps, [], d.settings).map(i => i.msg);
+  assert.ok(msgs.some(m => /Santa Rosa Tuesday: no keyholder at closing/.test(m)), msgs.join(' | '));
+  assert.ok(!msgs.some(m => /Santa Rosa Tuesday: no keyholder at opening/.test(m)), msgs.join(' | '));
+  assert.ok(msgs.some(m => /Santa Rosa .*: no keyholder/.test(m)));
+  // everyone at the location a keyholder -> the photographed week is fine again
+  sr.forEach(e => { e.keyholder = true; });
+  assert.ok(!L.validate(wk, emps, [], d.settings).some(i => /keyholder/.test(i.msg)));
+});
+
+t('autoSchedule puts a keyholder at open and close (12 weeks)', () => {
+  const emps = JSON.parse(JSON.stringify(d.employees));
+  for (const loc of ['Santa Rosa', 'Ukiah']) emps.filter(e => e.location === loc).slice(0, 2).forEach(e => { e.keyholder = true; });
+  let start = '2026-11-02';
+  for (let i = 0; i < 12; i++, start = L.addDays(start, 7)) {
+    const week = { start, cells: {} }; const r = L.autoSchedule(week, emps, [], d.settings); week.cells = r.cells;
+    const bad = L.validate(week, emps, [], d.settings).filter(x => x.severity === 'error').map(x => x.msg);
+    assert.deepStrictEqual(bad, [], start + ' ' + r.notes.join('; '));
+  }
+});
+
+t('unavailable / earliest / latest enforced', () => {
+  const e2 = JSON.parse(JSON.stringify(d.employees)); const s = e2.find(e => e.name === 'Sandee');
+  const w = JSON.parse(JSON.stringify(wk)); w.cells[s.id].sat = '8-3';
+  const msgs = L.validate(w, e2, [], d.settings).map(i => i.msg);
+  assert.ok(msgs.some(m => /Sandee Saturday.*not available/.test(m)));
+});
+
+t('blank cells are errors', () => {
+  const w = JSON.parse(JSON.stringify(wk)); w.cells[byName('Denis').id].mon = '';
+  assert.ok(L.validate(w, d.employees, [], d.settings).some(i => i.severity === 'error' && /nothing entered/.test(i.msg)));
+});
+
+t('autoSchedule from blank week: valid, respects PTO and availability', () => {
+  const pto = [{ id: 'p', empId: byName('Freya').id, start: '2026-11-03', end: '2026-11-04', note: 'PTO' }];
+  const week = { start: '2026-11-02', status: 'draft', cells: {} };
+  const r = L.autoSchedule(week, d.employees, pto, d.settings);
+  week.cells = r.cells;
+  assert.strictEqual(r.cells[byName('Freya').id].tue, 'PTO');
+  assert.strictEqual(r.cells[byName('Freya').id].wed, 'PTO');
+  assert.strictEqual(r.cells[byName('Sandee').id].sat, 'OFF');
+  const errs = L.validate(week, d.employees, pto, d.settings).filter(i => i.severity === 'error');
+  assert.deepStrictEqual(errs.map(e => e.msg), []);
+  assert.ok(r.notes.every(x => /minimum staffing/.test(x)), r.notes.join('; ')); // honest report when PTO leaves the floor thin
+  console.log('      sample:', JSON.stringify(Object.fromEntries(d.employees.filter(e => e.location !== 'Support').map(e => [e.name, L.DAYS.map(k => r.cells[e.id][k]).join(' | ')]))));
+});
+
+t('autoSchedule onlyEmpty keeps typed cells', () => {
+  const week = { start: '2026-11-09', status: 'draft', cells: { [byName('Denis').id]: { mon: '9-5' } } };
+  const r = L.autoSchedule(week, d.employees, [], d.settings, { onlyEmpty: true });
+  assert.strictEqual(r.cells[byName('Denis').id].mon, '9-5');
+  assert.ok(r.cells[byName('Denis').id].tue);
+});
+
+t('autoSchedule is stable over 12 weeks (no errors)', () => {
+  let start = '2026-11-02';
+  for (let i = 0; i < 12; i++, start = L.addDays(start, 7)) {
+    const week = { start, cells: {} }; week.cells = L.autoSchedule(week, d.employees, [], d.settings).cells;
+    const errs = L.validate(week, d.employees, [], d.settings).filter(x => x.severity === 'error');
+    assert.deepStrictEqual(errs.map(e => e.msg), [], start);
+  }
+});
+
+t('"Name Works" calendar events are extra work days, not PTO', () => {
+  const evs = [{ id: 'w1', summary: 'Brendan Works', start: { date: '2026-10-31' }, end: { date: '2026-11-01' } },
+               { id: 'o1', summary: 'Haley off', start: { date: '2026-10-26' }, end: { date: '2026-10-27' } }];
+  const r = L.eventsToPto(evs, d.employees, d.settings);
+  assert.deepStrictEqual(r.pto.map(p => [p.type, p.start]).sort(), [['off', '2026-10-26'], ['work', '2026-10-31']]);
+  // Works entry must not block scheduling, even on a day the person is normally unavailable
+  const emps = JSON.parse(JSON.stringify(d.employees)); const b = emps.find(e => e.name === 'Brendan');
+  b.availability = { sat: { available: false } };
+  const w = JSON.parse(JSON.stringify(wk));
+  const errs = L.validate(w, emps, r.pto, d.settings).filter(i => i.severity === 'error');
+  assert.deepStrictEqual(errs.map(e => e.msg), []);
+  // ...while the same day with no Works entry IS a problem
+  assert.ok(L.validate(w, emps, [], d.settings).some(i => /Brendan Saturday: not available/.test(i.msg)));
+  // OFF on a Works day warns
+  w.cells[b.id].sat = 'OFF';
+  assert.ok(L.validate(w, emps, r.pto, d.settings).some(i => i.severity === 'warn' && /calendar says they work/.test(i.msg)));
+  // Auto-fill schedules them
+  const week = { start: '2026-10-26', cells: {} };
+  assert.notStrictEqual(L.autoSchedule(week, emps, r.pto, d.settings).cells[b.id].sat, 'OFF');
+});
+
+t('the photographed week has no warnings either (headcount ramp-up ignored)', () => {
+  const w = L.validate(wk, d.employees, [], d.settings).filter(i => i.severity === 'warn');
+  assert.deepStrictEqual(w.map(x => x.msg), []);
+});
+
+t('autoSchedule never exceeds anyone\'s target days (12 weeks, no PTO)', () => {
+  let start = '2026-11-02';
+  for (let i = 0; i < 12; i++, start = L.addDays(start, 7)) {
+    const week = { start, cells: {} }; const r = L.autoSchedule(week, d.employees, [], d.settings);
+    for (const e of d.employees.filter(x => x.location !== 'Support')) {
+      const worked = L.DAYS.filter(k => r.cells[e.id][k] !== 'OFF').length;
+      assert.ok(worked <= (e.targetDays || 5), `${e.name} works ${worked} days in week ${start}`);
+    }
+  }
+});
+
+t('google events -> pto', () => {
+  const evs = [
+    { id: '1', summary: 'Brendan - PTO', start: { date: '2026-11-02' }, end: { date: '2026-11-05' } },
+    { id: '2', summary: 'Company holiday', start: { date: '2026-11-26' }, end: { date: '2026-11-27' } },
+    { id: '3', summary: 'Haley dentist', start: { dateTime: '2026-11-03T09:00:00-08:00' }, end: { dateTime: '2026-11-03T10:00:00-08:00' } },
+    { id: '4', summary: 'Brendan Smith off', status: 'cancelled', start: { date: '2026-12-01' }, end: { date: '2026-12-02' } },
+  ];
+  const r = L.eventsToPto(evs, d.employees, d.settings);
+  assert.strictEqual(r.pto.length, 1);
+  assert.deepStrictEqual([r.pto[0].start, r.pto[0].end], ['2026-11-02', '2026-11-04']);
+  assert.strictEqual(r.unmatched.length, 1);
+  assert.strictEqual(r.ignoredTimed, 1);
+});
+
+console.log(`\n${n} passed`);

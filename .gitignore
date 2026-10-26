@@ -1,0 +1,11 @@
+node_modules/
+dist/
+# Google OAuth client (client secret): never publish
+google-client.json
+# real data / test leftovers
+*.srts.json
+data.json
+backups/
+google-auth.bin
+*.log
+test/shots/

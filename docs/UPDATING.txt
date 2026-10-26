@@ -1,0 +1,17 @@
+UPDATES
+=======
+The app checks GitHub for a newer version every time it starts (when the computer is online)
+and on Data & backups > "Check for updates". If one exists, a blue bar appears: click
+"Update now", then "OK" to restart. Your data and Google sign-in are not touched; a backup is
+made first. A copy of the previous version is kept as resources\app.asar.bak.
+
+Moving to a NEW computer: download the ZIP from
+https://github.com/Brendooy/santa-rosa-tile-scheduler/releases/latest , extract it, and copy your
+google-client.json next to "Santa Rosa Tile Scheduler.exe" (it is not in the public download).
+After that, updates arrive by themselves.
+
+PUBLISHING AN UPDATE (on the main computer)
+  1. Make and test your changes.
+  2. Double-click publish-update.bat in the project folder and type a one-line note.
+  It bumps the version, runs the tests, builds, pushes the code to GitHub and creates the release.
+  (Only changes to the app itself are delivered this way; a new Electron version needs a new ZIP.)

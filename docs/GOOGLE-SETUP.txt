@@ -1,0 +1,63 @@
+GOOGLE CALENDAR SETUP  (one time, by whoever prepares the app)
+=============================================================
+
+The app reads PTO from Google Calendar with READ-ONLY access, signing in through the
+manager's own web browser. For that, Google needs to know about the app. You create
+that registration once; managers then just click "Connect Google Calendar".
+
+Without this the app still works fully; only the Google import is unavailable
+(time off can be typed in on the Time off & Google tab).
+
+A. CREATE THE GOOGLE REGISTRATION (about 10 minutes)
+   1. Go to https://console.cloud.google.com and sign in with the company Google
+      account. Create a project named "Santa Rosa Tile Scheduler".
+   2. Menu > APIs & Services > Library > search "Google Calendar API" > Enable.
+   3. Menu > APIs & Services > OAuth consent screen (or "Google Auth Platform").
+        - If the company uses Google Workspace: choose user type INTERNAL.
+          (Best choice: no Google review, no warning screens, no 7-day expiry.)
+        - Otherwise choose EXTERNAL, fill in app name and your email, and when
+          finished click "Publish app" so the status is "In production".
+          If you leave it in "Testing", sign-ins EXPIRE AFTER 7 DAYS and managers
+          must reconnect weekly. In production but unverified, Google shows a
+          "Google hasn't verified this app" screen the first time; the manager
+          clicks Advanced > "Go to Santa Rosa Tile Scheduler (unsafe)". This is
+          expected for a private tool.
+   4. Data access / Scopes > Add:  .../auth/calendar.readonly   (read-only).
+   5. APIs & Services > Credentials > Create credentials > OAuth client ID.
+        Application type: DESKTOP APP.  Name: Santa Rosa Tile Scheduler.
+      Click "Download JSON".
+
+B. GIVE THE FILE TO THE APP  (pick one)
+   - Easiest for managers: rename the downloaded file to   google-client.json
+     and put it in the app folder next to "Santa Rosa Tile Scheduler.exe" BEFORE
+     zipping and sharing. Managers then only click Connect.
+   - Or: managers open the Time off & Google tab and paste the Client ID (and
+     Client secret) when asked.
+   (For a Desktop-app client Google says the secret is not truly confidential,
+    so shipping it in the folder is the normal practice. It is NOT included in
+    data exports. A manager's actual sign-in is separate; see below.)
+
+C. WHAT MANAGERS DO
+   1. Time off & Google tab > "Connect Google Calendar". The browser opens.
+   2. Sign in to the Google account that can see the time-off calendar, click
+      Allow (read-only calendar access). The browser says "Connected".
+   3. Back in the app, tick the calendar(s) that contain time off, and
+      click "Refresh time off now".
+   4. Name events like "Brendan - PTO" as ALL-DAY events. The employee's name in
+      the Staff tab must appear in the title (first name is enough).
+
+SECURITY NOTES
+  - The sign-in token is stored encrypted with Windows (tied to the Windows user
+    account) in the data folder as google-auth.bin. It is never part of "Export
+    All Data". Moving to another computer = connect again there.
+  - To remove access: Time off & Google > Disconnect, or revoke it at
+    https://myaccount.google.com/permissions
+  - The app only ever READS the calendar. It cannot create or change events.
+
+TROUBLESHOOTING
+  "Google hasn't verified this app"  Expected for external, unverified apps (see A3).
+  "Access was revoked or expired"    Click Connect again (happens after 7 days if the
+                                     consent screen is still in Testing).
+  "Calendar API may not be enabled"  Repeat step A2 in the same project.
+  Nothing imports                    Check the event is ALL-DAY and the title includes
+                                     the employee's name; see "not matched" list.
