@@ -13,6 +13,7 @@ THE SCHEDULE TAB
         OFF         day off
         PTO         paid time off
         IN LATE     comes in later than opening, works to closing
+        CLOSED      the store is closed that day (Auto-fill writes this from the calendar)
     Press Enter to move down, Tab to move right. Autocomplete suggests common shifts.
   - Cell colours: grey = OFF, yellow = PTO, light blue = IN LATE, red = a problem
     (hover for the reason).
@@ -79,6 +80,10 @@ TIME OFF & GOOGLE TAB
     not time off: that day's availability is ignored, Auto-fill schedules them, and
     you get a warning if they are marked OFF. Timed events (appointments) are ignored. Events that match nobody are listed so you
     can fix a spelling.
+  - An ALL-DAY event titled "Store closed" closes every location that day; "Ukiah closed"
+    or "Santa Rosa closed" closes just that one. Auto-fill writes CLOSED for everyone, closed
+    days are skipped by the coverage checks, and scheduling someone that day is a problem.
+    You can also type CLOSED in a cell, or add a "Store closed" entry by hand.
   - The page and the Schedule tab show when time off was last refreshed. If a
     refresh fails, your existing time off is kept and a red banner says so.
     Time off added in Google since the last refresh will NOT show until you refresh.

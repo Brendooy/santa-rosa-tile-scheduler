@@ -164,6 +164,28 @@ t('alerts: over 8 hours in a day, 6 days in a row', () => {
   assert.ok(!L.validate(w, d.employees, [], d.settings).some(i => /days in a row/.test(i.msg) && i.empId === e.id));
 });
 
+t('"Store closed" calendar days: CLOSED cells, Auto-fill, no coverage, scheduling is an error', () => {
+  const evs = [{ id: 'c1', summary: 'Store closed', start: { date: '2026-11-04' }, end: { date: '2026-11-05' } },
+               { id: 'c2', summary: 'Ukiah closed', start: { date: '2026-11-05' }, end: { date: '2026-11-06' } },
+               { id: 'c3', summary: 'Sandee closed the store early', start: { date: '2026-11-06' }, end: { date: '2026-11-07' } }];
+  const r = L.eventsToPto(evs, d.employees, d.settings);
+  assert.deepStrictEqual(r.pto.map(p => [p.type, p.loc, p.start]), [['closed', null, '2026-11-04'], ['closed', 'Ukiah', '2026-11-05'], ['closed', null, '2026-11-06']]);
+  const week = { start: '2026-11-02', cells: {} };
+  const a = L.autoSchedule(week, d.employees, r.pto, d.settings); week.cells = a.cells;
+  const sr = d.employees.find(e => e.location === 'Santa Rosa'), uk = d.employees.find(e => e.location === 'Ukiah');
+  assert.strictEqual(a.cells[sr.id].wed, 'CLOSED'); assert.strictEqual(a.cells[uk.id].wed, 'CLOSED');
+  assert.strictEqual(a.cells[uk.id].thu, 'CLOSED'); assert.notStrictEqual(a.cells[sr.id].thu, 'CLOSED');   // only Ukiah named on the 5th
+  assert.strictEqual(a.cells[sr.id].fri, 'CLOSED');
+  const msgs = L.validate(week, d.employees, r.pto, d.settings);
+  assert.deepStrictEqual(msgs.filter(i => i.severity === 'error').map(i => i.msg), []);
+  assert.ok(!msgs.some(i => /Wednesday/.test(i.msg) && /coverage|only \d/.test(i.msg)));
+  week.cells[sr.id].wed = '8-5';
+  assert.ok(L.validate(week, d.employees, r.pto, d.settings).some(i => /Wednesday: scheduled while Santa Rosa is closed/.test(i.msg)));
+  week.cells[sr.id].wed = 'CLOSED';
+  const w2 = JSON.parse(JSON.stringify(week)); w2.cells[sr.id].mon = 'CLOSED';   // CLOSED on a day the store is open
+  assert.ok(L.validate(w2, d.employees, r.pto, d.settings).some(i => i.severity === 'warn' && /marked CLOSED but the store is open/.test(i.msg)));
+});
+
 t('warnings can be switched off', () => {
   const w = JSON.parse(JSON.stringify(wk)); const e = byName('Denis');
   w.cells[e.id] = { mon: '7-5', tue: '8-5', wed: '8-5', thu: '8-5', fri: '8-5', sat: '8-3' };

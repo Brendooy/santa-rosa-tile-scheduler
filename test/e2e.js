@@ -25,6 +25,7 @@ const fake = http.createServer((req, res) => {
   if (u.pathname.startsWith('/calendar/v3/calendars/') && u.pathname.endsWith('/events')) return json({ items: [
     { id: 'ev1', summary: 'Brendan - PTO', start: { date: '2026-10-28' }, end: { date: '2026-10-30' } },
     { id: 'ev2', summary: 'Haley dentist', start: { dateTime: '2026-10-27T09:00:00-07:00' }, end: { dateTime: '2026-10-27T10:00:00-07:00' } },
+    { id: 'ev5', summary: 'Store closed', start: { date: '2026-11-03' }, end: { date: '2026-11-04' } },
     { id: 'ev4', summary: 'Brendan Works', start: { date: '2026-10-31' }, end: { date: '2026-11-01' } },
     { id: 'ev3', summary: 'Staff party', start: { date: '2026-12-18' }, end: { date: '2026-12-19' } },
   ] });
@@ -137,7 +138,7 @@ const dlg = async (page, btn) => { await page.waitForSelector('#modalRoot .dlg')
   await tab(page, 'schedule');
   assert.match(await page.textContent('.issues'), /Brendan Wednesday: scheduled but has PTO/);
   assert.doesNotMatch(await page.textContent('.issues'), /Brendan Saturday/);   // "Brendan Works" is not a problem
-  await tab(page, 'pto'); assert.match(await page.textContent('#view'), /Brendan[\s\S]{0,40}Works[\s\S]{0,40}2026-10-31/); await tab(page, 'schedule');
+  await tab(page, 'pto'); assert.match(await page.textContent('#view'), /Brendan[\s\S]{0,40}Works[\s\S]{0,40}2026-10-31/); assert.match(await page.textContent('#view'), /Whole store[\s\S]{0,40}Store closed[\s\S]{0,40}2026-11-03/); await tab(page, 'schedule');
   ok('Google PTO feeds the schedule checks');
 
   // ===== 7. refresh failure keeps existing PTO and flags it

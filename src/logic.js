@@ -36,6 +36,7 @@
     if (!t) return { kind: 'blank' };
     const u = t.toUpperCase();
     if (u === 'OFF') return { kind: 'off' };
+    if (u === 'CLOSED' || u === 'STORE CLOSED') return { kind: 'closed' };
     if (u === 'PTO') return { kind: 'pto' };
     if (u === 'IN LATE' || u === 'LATE') return { kind: 'late' };
     const parts = t.replace(/\s+/g, '').split(/[-–—]/);
@@ -90,7 +91,12 @@
   }
 
   // ---------- store hours ----------
-  function hoursFor(settings, loc, dayKey) {
+  /** A calendar "store closed" entry covering this date (for this location, or for every location). */
+  function closedOn(pto, loc, date) {
+    return (pto || []).find(p => p.type === 'closed' && (!p.loc || p.loc === loc) && p.start <= date && date <= p.end) || null;
+  }
+  function hoursFor(settings, loc, dayKey, date, pto) {
+    if (date && closedOn(pto, loc, date)) return null;
     const l = (settings.locations[loc] || {});
     const h = (l.hours || {})[dayKey];
     if (!h || h.closed) return null;
@@ -106,9 +112,9 @@
       const cells = DAYS.map((dk, i) => {
         const raw = ((week.cells || {})[e.id] || {})[dk] || '';
         const p = parseCell(raw);
-        const hours = hoursFor(settings, e.location, dk);
+        const hours = hoursFor(settings, e.location, dk, dates[i], pto);
         const sh = hours ? resolveShift(p, hours, settings) : null;
-        return { dk, date: dates[i], raw, parsed: p, hours, shift: sh, pto: ptoOn(pto, e.id, dates[i]), work: workOn(pto, e.id, dates[i]) };
+        return { dk, date: dates[i], raw, parsed: p, hours, shift: sh, closure: closedOn(pto, e.location, dates[i]), pto: ptoOn(pto, e.id, dates[i]), work: workOn(pto, e.id, dates[i]) };
       });
       rows.push({ emp: e, cells });
     }
@@ -152,13 +158,15 @@
   function validate(week, employees, pto, settings) {
     const issues = [];
     const add = (severity, day, e, loc, msg) => issues.push({ severity, day, empId: e ? e.id : null, loc: loc || (e && e.location) || null, msg });
-    const { rows } = weekGrid(week, employees, pto, settings);
+    const { rows, dates } = weekGrid(week, employees, pto, settings);
     const dayTag = i => DAY_NAMES[i];
 
     for (const r of rows) {
       const e = r.emp; let hrs = 0, worked = 0;
       r.cells.forEach((c, i) => {
         const k = c.parsed.kind;
+        if (k === 'blank' && c.closure) return;   // the store is closed that day: nothing needs entering
+        if (k === 'closed') { if (!c.closure && c.hours) add('warn', i, e, null, `${e.name} ${dayTag(i)}: marked CLOSED but the store is open this day.`); return; }
         if (k === 'blank') return add('error', i, e, null, `${e.name} ${dayTag(i)}: nothing entered (use OFF, PTO or a shift).`);
         if (k === 'invalid') return add('error', i, e, null, `${e.name} ${dayTag(i)}: "${c.raw}" is not a valid entry.`);
         const aw = availWindow(e, c.dk);
@@ -167,7 +175,7 @@
         if (c.pto && k === 'off') add('warn', i, e, null, `${e.name} ${dayTag(i)}: has PTO but is marked OFF; mark it PTO so it is tracked.`);
         if (c.work && !working) add('warn', i, e, null, `${e.name} ${dayTag(i)}: the calendar says they work this day, but they are not scheduled.`);
         if (!working) return;
-        if (!c.hours) return add('error', i, e, null, `${e.name} ${dayTag(i)}: scheduled while ${e.location} is closed.`);
+        if (!c.hours) return add('error', i, e, null, `${e.name} ${dayTag(i)}: scheduled while ${e.location} is closed${c.closure ? ` (${c.closure.note || 'store closed'})` : ''}.`);
         worked++; const ph = paidHours(c.shift, settings); hrs += ph;
         const dayMax = settings.maxDayHours ?? 8;
         if (settings.warnLongDay !== false && dayMax && ph > dayMax + 1e-9) add('warn', i, e, null, `${e.name} ${dayTag(i)}: ${+ph.toFixed(2)} hours scheduled in one day (over ${dayMax}).`);
@@ -191,7 +199,7 @@
     for (const loc of locs) {
       const locRows = rows.filter(r => r.emp.location === loc);
       DAYS.forEach((dk, i) => {
-        const hours = hoursFor(settings, loc, dk);
+        const hours = hoursFor(settings, loc, dk, dates[i], pto);
         if (!hours) return;
         const cv = coverageOf(locRows, i, hours, settings.rampMinutes || 0);
         if (!cv.warehouseOk || !cv.showroomOk) {
@@ -217,6 +225,7 @@
     const cells = JSON.parse(JSON.stringify(week.cells || {}));
     const wi = weekIndex(week.start);
     const staff = employees.filter(e => e.active && e.location !== 'Support');
+    const hrsOf0 = (loc, dk) => hoursFor(settings, loc, dk, dates[DAYS.indexOf(dk)], pto);
     const locked = (e, dk) => opts.onlyEmpty && ((cells[e.id] || {})[dk] || '').trim() !== '';
     const set = (e, dk, v) => { (cells[e.id] = cells[e.id] || {})[dk] = v; };
 
@@ -225,15 +234,18 @@
       if (!group.length) continue;
       // rotate who gets trimmed first so days off shift from week to week
       const order = group.map((e, i) => group[(i + wi) % group.length]);
+      const hrsOf = dk => hrsOf0(loc, dk);
+      const closedDay = dk => closedOn(pto, loc, dates[DAYS.indexOf(dk)]);
       const state = {}; // empId -> {dk: 'work'|'off'|'pto'|'fixed'}
       const forced = {}; // "empId:dk" -> true when the calendar says this person works that day
       for (const e of group) {
         state[e.id] = {};
         DAYS.forEach((dk, i) => {
-          const h = hoursFor(settings, loc, dk);
+          const h = hrsOf(dk);
           const aw = availWindow(e, dk);
           const pt = ptoOn(pto, e.id, dates[i]);
           if (locked(e, dk)) state[e.id][dk] = 'fixed';
+          else if (closedDay(dk)) { state[e.id][dk] = 'off'; set(e, dk, 'CLOSED'); }
           else if (pt) { state[e.id][dk] = 'pto'; set(e, dk, 'PTO'); }
           else if (h && workOn(pto, e.id, dates[i])) { state[e.id][dk] = 'work'; forced[e.id + ':' + dk] = true; }
           else if (!h || !aw.available) { state[e.id][dk] = 'off'; set(e, dk, 'OFF'); }
@@ -241,7 +253,7 @@
         });
       }
       const shiftFor = (e, dk) => {
-        const h = hoursFor(settings, loc, dk);
+        const h = hrsOf(dk);
         const a = availFor(e, dk);
         const lh = (settings.locations[loc].defaultShift || {})[dk] || `${fmtTime(h.open)}-${fmtTime(h.close)}`;
         let txt = a.shift || lh;
@@ -257,9 +269,9 @@
       const sh = {}; // empId -> dk -> {start,end}
       group.forEach(e => { sh[e.id] = {}; DAYS.forEach(dk => { if (state[e.id][dk] === 'work') sh[e.id][dk] = shiftFor(e, dk); if (!sh[e.id][dk] && state[e.id][dk] === 'work') state[e.id][dk] = 'off'; }); });
       const working = (e, dk) => state[e.id][dk] === 'work' ? sh[e.id][dk] : (state[e.id][dk] === 'fixed' ? fixedShift(e, dk) : null);
-      const fixedShift = (e, dk) => { const h = hoursFor(settings, loc, dk); return h ? resolveShift(parseCell(cells[e.id][dk]), h, settings) : null; };
+      const fixedShift = (e, dk) => { const h = hrsOf(dk); return h ? resolveShift(parseCell(cells[e.id][dk]), h, settings) : null; };
       const cover = dk => {
-        const h = hoursFor(settings, loc, dk); if (!h) return null;
+        const h = hrsOf(dk); if (!h) return null;
         const on = group.map(e => ({ e, s: working(e, dk) })).filter(x => x.s);
         let min = Infinity, wShort = false, sShort = false, posAt = null; const ramp = settings.rampMinutes || 0;
         for (let t = h.open + ramp; t + STEP <= h.close - ramp; t += STEP) {
@@ -328,7 +340,7 @@
       // 2) repair keyholder / Warehouse / Showroom / headcount gaps
       const days = e => DAYS.filter(dk => ['work', 'fixed', 'pto'].includes(state[e.id][dk])).length;
       DAYS.forEach((dk, i) => {
-        const h = hoursFor(settings, loc, dk); if (!h) return;
+        const h = hrsOf(dk); if (!h) return;
         let keyGaveUp = false;
         for (let guard = 0; guard < 10; guard++) {
           const c = cover(dk);
@@ -382,7 +394,7 @@
       // 3) write cells
       for (const e of group) for (const dk of DAYS) {
         if (state[e.id][dk] === 'work') { const s = sh[e.id][dk]; set(e, dk, `${fmtTime(s.start)}-${fmtTime(s.end)}`); }
-        else if (state[e.id][dk] === 'off') set(e, dk, 'OFF');
+        else if (state[e.id][dk] === 'off') set(e, dk, closedDay(dk) ? 'CLOSED' : 'OFF');
       }
     }
     return { cells, notes };
@@ -411,6 +423,13 @@
       if (ev.status === 'cancelled') continue;
       const summary = ev.summary || '(no title)';
       if (!(ev.start && ev.start.date)) { ignoredTimed++; continue; }   // only all-day events block a whole day
+      // "Store closed" (or "Ukiah closed"): the store is shut that day, for every location unless one is named
+      if (/\bclosed\b/i.test(summary) && (/\b(store|showroom|warehouse)\b/i.test(summary) || !matchEmployee(summary, employees))) {
+        const named = Object.keys((settings && settings.locations) || {}).filter(l => new RegExp('\\b' + l.replace(/\s+/g, '\\s+') + '\\b', 'i').test(summary));
+        const end = addDays(ev.end.date, -1) < ev.start.date ? ev.start.date : addDays(ev.end.date, -1);
+        for (const loc of named.length ? named : [null]) pto.push({ id: 'g:' + ev.id + ':closed:' + (loc || 'all'), source: 'google', type: 'closed', loc, empId: null, start: ev.start.date, end, note: summary });
+        continue;
+      }
       if (settings.google.requireKeyword && !kw.some(k => summary.toLowerCase().includes(k))) { unmatched.push({ summary, start: ev.start.date, reason: 'no PTO keyword' }); continue; }
       const e = matchEmployee(summary, employees);
       if (!e) { unmatched.push({ summary, start: ev.start.date, reason: 'no matching employee' }); continue; }
@@ -424,5 +443,5 @@
   let seq = 0;
   const newId = p => `${p}${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
-  return { DAYS, DAY_NAMES, STEP, iso, parseISO, addDays, mondayOf, weekDates, dayLabel, fmtTime, parseClock, parseCell, resolveShift, paidHours, ptoOn, workOn, availFor, availWindow, hoursFor, weekGrid, coverageOf, validate, autoSchedule, matchEmployee, eventsToPto, ptoTypeFromTitle, newId };
+  return { DAYS, DAY_NAMES, STEP, iso, parseISO, addDays, mondayOf, weekDates, dayLabel, fmtTime, parseClock, parseCell, resolveShift, paidHours, ptoOn, workOn, closedOn, availFor, availWindow, hoursFor, weekGrid, coverageOf, validate, autoSchedule, matchEmployee, eventsToPto, ptoTypeFromTitle, newId };
 });
