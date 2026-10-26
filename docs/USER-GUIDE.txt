@@ -31,11 +31,21 @@ CHECKS (what counts as a problem)
     be working when the store opens and when it closes. This check stays off until at
     least one person at that location is marked keyholder.
   Warnings (do not block): fewer people than the store minimum mid-day, a person
-  over their max days/hours, a shift well outside store hours, PTO marked OFF.
+  over their max days/hours, MORE THAN 8 PAID HOURS IN ONE DAY for one person,
+  SIX DAYS IN A ROW (Monday to Saturday with no day off), a shift well outside store
+  hours, PTO marked OFF.
+
+PAID HOURS
+  Hours totals take off an unpaid lunch: 30 minutes once a shift is 6 hours or longer,
+  and 1 hour once it is 9 hours or longer. So 8-4 = 7.5 paid hours, 8-5 = 8, 7:30-5 = 8.5.
+  The lunch lengths and the "more than 8 hours" limit can be changed on the Store rules tab.
 
 AUTO-FILL
   Fills the week from each person's availability, usual shift, target days per
-  week, qualifications and PTO, then repairs keyholder/Warehouse/Showroom/staffing gaps.
+  week, qualifications and PTO, then repairs keyholder/Warehouse/Showroom/staffing gaps. It tries not to go over
+  anyone's max hours per week (set on the Staff tab) or 8 paid hours in a day, by
+  shortening shifts or giving a day off where coverage allows, and avoids 6-day weeks;
+  anything it cannot avoid is reported.
   If the week already has entries you choose: fill empty cells only, or rebuild.
   It tells you about anything it could not cover. Always review the result;
   every cell can still be edited. "Copy last week" copies the previous week.

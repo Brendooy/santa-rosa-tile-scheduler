@@ -402,7 +402,9 @@
     }).join('');
     return `<div class="page"><p class="muted" style="margin-top:0">These rules drive the coverage checks, Auto-fill and the publish rule. Missing Warehouse or Showroom coverage blocks publishing; low headcount is a warning.</p>${loc}
       <div class="card"><h3>General</h3><div class="fields">
-        <label>Unpaid lunch (minutes, for shifts over 5 h)<input type="number" min="0" max="120" data-gs="lunchMinutes" value="${s.lunchMinutes}"></label>
+        <label>Unpaid lunch for shifts of 6+ hours (minutes)<input type="number" min="0" max="120" data-gs="lunchMinutes" value="${s.lunchMinutes ?? 30}"></label>
+        <label>Unpaid lunch for shifts of 9+ hours, e.g. 8-5 (minutes)<input type="number" min="0" max="180" data-gs="longLunchMinutes" value="${s.longLunchMinutes ?? 60}"></label>
+        <label>Warn when paid hours in one day exceed (0 = off)<input type="number" min="0" max="24" step="0.5" data-gs="maxDayHours" value="${s.maxDayHours ?? 8}"></label>
         <label>“IN LATE” counts as starting (minutes after opening)<input type="number" min="0" max="480" data-gs="lateStartMinutes" value="${s.lateStartMinutes}"></label>
         <label>Ignore headcount in first/last (minutes)<input type="number" min="0" max="180" data-gs="rampMinutes" value="${s.rampMinutes ?? 60}"></label>
         <label>Automatic backups to keep<input type="number" min="5" max="200" data-gs="backupKeep" value="${s.backupKeep}"></label>

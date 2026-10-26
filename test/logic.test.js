@@ -139,9 +139,45 @@ t('"Name Works" calendar events are extra work days, not PTO', () => {
   assert.notStrictEqual(L.autoSchedule(week, emps, r.pto, d.settings).cells[b.id].sat, 'OFF');
 });
 
-t('the photographed week has no warnings either (headcount ramp-up ignored)', () => {
+t('the photographed week only warns about 7:30-5 days (8.5 paid hours); headcount ramp-up ignored', () => {
   const w = L.validate(wk, d.employees, [], d.settings).filter(i => i.severity === 'warn');
-  assert.deepStrictEqual(w.map(x => x.msg), []);
+  assert.ok(w.length && w.every(x => /hours scheduled in one day \(over 8\)/.test(x.msg)), w.map(x => x.msg).join(' | '));
+});
+
+t('unpaid lunch: none under 6 h, 30 min from 6 h, 1 h from 9 h (8-5 = 8 paid)', () => {
+  const ph = (a, b) => L.paidHours({ start: a * 60, end: b * 60 }, d.settings);
+  assert.strictEqual(ph(8, 13), 5);        // 5 h shift: no lunch
+  assert.strictEqual(ph(8, 14), 5.5);      // exactly 6 h: 30 min
+  assert.strictEqual(ph(8, 16), 7.5);      // 8-4: 30 min
+  assert.strictEqual(ph(8, 17), 8);        // 8-5: 1 h
+  assert.strictEqual(ph(7.5, 17), 8.5);    // 7:30-5
+});
+
+t('alerts: over 8 hours in a day, 6 days in a row', () => {
+  const w = JSON.parse(JSON.stringify(wk)); const e = byName('Denis');
+  w.cells[e.id] = { mon: '7-5', tue: '8-5', wed: '8-5', thu: '8-5', fri: '8-5', sat: '8-3' };
+  const msgs = L.validate(w, d.employees, [], d.settings).filter(i => i.empId === e.id).map(i => i.msg);
+  assert.ok(msgs.some(m => /Denis Monday: 9 hours scheduled in one day \(over 8\)/.test(m)), msgs.join(' | '));
+  assert.ok(!msgs.some(m => /Denis Tuesday.*one day/.test(m)));
+  assert.ok(msgs.some(m => /Denis: scheduled 6 days in a row/.test(m)), msgs.join(' | '));
+  w.cells[e.id].wed = 'OFF';
+  assert.ok(!L.validate(w, d.employees, [], d.settings).some(i => /days in a row/.test(i.msg) && i.empId === e.id));
+});
+
+t('autoSchedule keeps people within their maximum weekly hours (and 8 h days) when it can', () => {
+  const emps = JSON.parse(JSON.stringify(d.employees));
+  const sr = emps.filter(e => e.location === 'Santa Rosa'); sr.forEach(e => { e.maxHours = 30; });
+  let start = '2026-11-02';
+  for (let i = 0; i < 6; i++, start = L.addDays(start, 7)) {
+    const week = { start, cells: {} }; const r = L.autoSchedule(week, emps, [], d.settings); week.cells = r.cells;
+    const warn = L.validate(week, emps, [], d.settings);
+    assert.deepStrictEqual(warn.filter(x => x.severity === 'error').map(x => x.msg), [], start);
+    assert.ok(!warn.some(x => /hours scheduled in one day|days in a row/.test(x.msg)), warn.map(x => x.msg).join(' | '));
+    for (const e of sr) {
+      const hrs = L.weekGrid(week, emps, [], d.settings).rows.find(x => x.emp.id === e.id).cells.reduce((t, c) => t + L.paidHours(c.shift, d.settings), 0);
+      assert.ok(hrs <= 30 + 1e-9 || r.notes.some(n => n.startsWith(e.name)), `${e.name} ${hrs} h in ${start}: ${r.notes.join('; ')}`);
+    }
+  }
 });
 
 t('autoSchedule never exceeds anyone\'s target days (12 weeks, no PTO)', () => {

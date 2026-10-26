@@ -18,7 +18,11 @@ function defaultSettings() {
         defaultShift: { mon: '8-5', tue: '8-5', wed: '8-5', thu: '8-5', fri: '8-5', sat: '8-3' },
       },
     },
-    lunchMinutes: 30,        // unpaid lunch deducted from shifts longer than 5 hours (hours totals only)
+    lunchMinutes: 30,        // unpaid lunch for shifts of lunchAfterHours or more (hours totals only)
+    lunchAfterHours: 6,
+    longLunchMinutes: 60,    // ...and a full hour for shifts of longLunchAfterHours or more (e.g. 8-5)
+    longLunchAfterHours: 9,
+    maxDayHours: 8,          // warn when one person is scheduled for more paid hours than this in a day (0 = off)
     lateStartMinutes: 90,    // "IN LATE" counts as starting this many minutes after opening
     rampMinutes: 60,         // minimum-headcount check ignores this long after opening and before closing
     backupKeep: 30,

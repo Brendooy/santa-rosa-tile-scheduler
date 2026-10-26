@@ -60,7 +60,10 @@
   function paidHours(sh, settings) {
     if (!sh) return 0;
     const span = (sh.end - sh.start) / 60;
-    return Math.max(0, span - (span > 5 ? (settings.lunchMinutes || 0) / 60 : 0));
+    // unpaid lunch: 30 min once a shift reaches 6 hours, a full hour once it reaches 9 hours (e.g. 8-5)
+    const long = span >= (settings.longLunchAfterHours ?? 9), mid = span >= (settings.lunchAfterHours ?? 6);
+    const lunch = long ? (settings.longLunchMinutes ?? 60) : mid ? (settings.lunchMinutes ?? 30) : 0;
+    return Math.max(0, span - lunch / 60);
   }
 
   // ---------- PTO ----------
@@ -165,7 +168,9 @@
         if (c.work && !working) add('warn', i, e, null, `${e.name} ${dayTag(i)}: the calendar says they work this day, but they are not scheduled.`);
         if (!working) return;
         if (!c.hours) return add('error', i, e, null, `${e.name} ${dayTag(i)}: scheduled while ${e.location} is closed.`);
-        worked++; hrs += paidHours(c.shift, settings);
+        worked++; const ph = paidHours(c.shift, settings); hrs += ph;
+        const dayMax = settings.maxDayHours ?? 8;
+        if (dayMax && ph > dayMax + 1e-9) add('warn', i, e, null, `${e.name} ${dayTag(i)}: ${+ph.toFixed(2)} hours scheduled in one day (over ${dayMax}).`);
         if (c.work) { /* the calendar explicitly says they work this day, so normal availability does not apply */ }
         else if (!aw.available) add('error', i, e, null, `${e.name} ${dayTag(i)}: not available this day.`);
         else {
@@ -174,6 +179,9 @@
         }
         if (c.shift.start < c.hours.open - 30 || c.shift.end > c.hours.close + 30) add('warn', i, e, null, `${e.name} ${dayTag(i)}: shift falls well outside store hours.`);
       });
+      let run = 0, best = 0;
+      r.cells.forEach(c => { run = (c.parsed.kind === 'shift' || c.parsed.kind === 'late') && c.hours ? run + 1 : 0; best = Math.max(best, run); });
+      if (best >= 6) add('warn', null, e, null, `${e.name}: scheduled ${best} days in a row (Monday to Saturday with no day off).`);
       if (e.maxDays && worked > e.maxDays) add('warn', null, e, null, `${e.name}: ${worked} days scheduled (max ${e.maxDays}).`);
       if (e.maxHours && hrs > e.maxHours) add('warn', null, e, null, `${e.name}: ${hrs.toFixed(1)} hours scheduled (max ${e.maxHours}).`);
     }
@@ -266,6 +274,36 @@
           keyOpenShort: keyed && !keys.some(x => x.s.start <= h.open), keyCloseShort: keyed && !keys.some(x => x.s.end >= h.close) };
       };
       const ok = dk => { const c = cover(dk); return !c || (!c.wShort && !c.sShort && !c.keyOpenShort && !c.keyCloseShort); };
+      // ---- hours: paid hours per day / week, and trimming shifts so people stay within their limits ----
+      const paidOf = x => x ? paidHours(x, settings) : 0;
+      const dayPaid = (e, dk) => paidOf(working(e, dk));
+      const weekPaid = e => DAYS.reduce((t, dk) => t + dayPaid(e, dk), 0);
+      const hoursOK = (e, dk, ns) => !e.maxHours || weekPaid(e) - dayPaid(e, dk) + paidOf(ns) <= e.maxHours + 1e-9;
+      const capDay = settings.maxDayHours ?? 8;
+      // shorten one auto-scheduled shift by 30 minutes (end first, then start) if coverage and keyholder rules still hold
+      const shrink = (e, dk) => {
+        const x = state[e.id][dk] === 'work' ? sh[e.id][dk] : null; if (!x || x.end - x.start <= 240) return false;
+        for (const side of ['end', 'start']) {
+          const old = x[side]; x[side] = side === 'end' ? old - STEP : old + STEP;
+          if (ok(dk)) return true;
+          x[side] = old;
+        }
+        return false;
+      };
+      const fitHours = report => {
+        for (const e of group) {
+          if (capDay) for (const dk of DAYS) while (state[e.id][dk] === 'work' && dayPaid(e, dk) > capDay + 1e-9) if (!shrink(e, dk)) break;
+          if (!e.maxHours) continue;
+          for (let guard = 0; guard < 60 && weekPaid(e) > e.maxHours + 1e-9; guard++) {
+            let done = false;
+            for (const dk of DAYS.filter(d => state[e.id][d] === 'work').sort((a, b) => dayPaid(e, b) - dayPaid(e, a))) if (shrink(e, dk)) { done = true; break; }
+            if (!done) for (const dk of DAYS.filter(d => state[e.id][d] === 'work' && !forced[e.id + ':' + d])) {
+              state[e.id][dk] = 'off'; if (ok(dk)) { done = true; break; } state[e.id][dk] = 'work';
+            }
+            if (!done) { if (report) notes.push(`${e.name}: ${+weekPaid(e).toFixed(1)} hours scheduled, over their maximum of ${e.maxHours} (cutting more would leave a coverage gap)`); break; }
+          }
+        }
+      };
 
       // 1) trim to each person's target number of days, taking days off where coverage has the most slack
       for (const e of order) {
@@ -286,7 +324,8 @@
           state[e.id][best] = 'off';
         }
       }
-      // 2) repair opener / closer / headcount gaps
+      fitHours(false);
+      // 2) repair keyholder / Warehouse / Showroom / headcount gaps
       const days = e => DAYS.filter(dk => ['work', 'fixed', 'pto'].includes(state[e.id][dk])).length;
       DAYS.forEach((dk, i) => {
         const h = hoursFor(settings, loc, dk); if (!h) return;
@@ -297,16 +336,20 @@
           if (needKO || needKC) {
             // a keyholder must open and close: first stretch a keyholder who already works, else bring one in
             let fixed = false;
-            for (const e of group) {
-              const s = e.keyholder && state[e.id][dk] === 'work' ? sh[e.id][dk] : null; if (!s) continue;
-              const aw = availWindow(e, dk);
-              if (needKO && s.start > h.open && (aw.earliest == null || aw.earliest <= h.open)) { s.start = h.open; fixed = true; break; }
-              if (needKC && s.end < h.close && (aw.latest == null || aw.latest >= h.close)) { s.end = h.close; fixed = true; break; }
+            for (const strict of [true, false]) {   // first try without pushing anyone over their weekly maximum
+              for (const e of group) {
+                const s = e.keyholder && state[e.id][dk] === 'work' ? sh[e.id][dk] : null; if (!s) continue;
+                const aw = availWindow(e, dk);
+                if (needKO && s.start > h.open && (aw.earliest == null || aw.earliest <= h.open) && !(strict && !hoursOK(e, dk, { start: h.open, end: s.end }))) { s.start = h.open; fixed = true; break; }
+                if (needKC && s.end < h.close && (aw.latest == null || aw.latest >= h.close) && !(strict && !hoursOK(e, dk, { start: s.start, end: h.close }))) { s.end = h.close; fixed = true; break; }
+              }
+              if (fixed) break;
             }
             if (fixed) continue;
             const kp = group.filter(e => e.keyholder && state[e.id][dk] === 'off' && !ptoOn(pto, e.id, dates[i]) && !locked(e, dk) && availWindow(e, dk).available && shiftFor(e, dk) &&
               days(e) < (e.maxDays || e.targetDays || 5) &&
-              (!needKO || shiftFor(e, dk).start <= h.open) && (!needKC || shiftFor(e, dk).end >= h.close)).sort((a, b) => days(a) - days(b));
+              (!needKO || shiftFor(e, dk).start <= h.open) && (!needKC || shiftFor(e, dk).end >= h.close))
+              .sort((a, b) => (hoursOK(b, dk, shiftFor(b, dk)) - hoursOK(a, dk, shiftFor(a, dk))) || (days(a) >= 5) - (days(b) >= 5) || days(a) - days(b));
             if (kp.length) { const e = kp[0]; state[e.id][dk] = 'work'; sh[e.id][dk] = shiftFor(e, dk); continue; }
             notes.push(`${loc} ${DAY_NAMES[i]}: no keyholder available to ${needKO && needKC ? 'open and close' : needKO ? 'open' : 'close'}`);
             keyGaveUp = true; continue;
@@ -315,22 +358,27 @@
           if (!needPos && !needStaff) break;
           const pick = group.filter(e => state[e.id][dk] === 'off' && !ptoOn(pto, e.id, dates[i]) && !locked(e, dk) && availWindow(e, dk).available && shiftFor(e, dk) &&
             (!needW || e.canWarehouse) && (!needS || e.canShowroom) &&
-            days(e) < (needPos ? (e.maxDays || e.targetDays || 5) : (e.targetDays || 5)))   // staffing top-ups never exceed target days
-            .sort((a, b) => days(a) - days(b));
+            days(e) < (needPos ? (e.maxDays || e.targetDays || 5) : (e.targetDays || 5)) &&   // staffing top-ups never exceed target days
+            (needPos || hoursOK(e, dk, shiftFor(e, dk))))                                      // ...or the weekly hour maximum
+            .sort((a, b) => (hoursOK(b, dk, shiftFor(b, dk)) - hoursOK(a, dk, shiftFor(a, dk))) || (days(a) >= 5) - (days(b) >= 5) || days(a) - days(b));
           if (pick.length) { const e = pick[0]; state[e.id][dk] = 'work'; sh[e.id][dk] = shiftFor(e, dk); continue; }
           // otherwise stretch an existing qualified person's shift to reach the uncovered time
           let widened = false;
-          if (needPos) for (const e of group) {
-            const s = state[e.id][dk] === 'work' ? sh[e.id][dk] : null; if (!s) continue;
-            if ((needW && !e.canWarehouse) && (needS && !e.canShowroom)) continue;
-            if (needW && !needS && !e.canWarehouse) continue; if (needS && !needW && !e.canShowroom) continue;
-            const aw = availWindow(e, dk), t = c.posAt;
-            if (t < s.start && (aw.earliest == null || aw.earliest <= t)) { s.start = t; widened = true; break; }
-            if (t + STEP > s.end && (aw.latest == null || aw.latest >= t + STEP)) { s.end = t + STEP; widened = true; break; }
+          if (needPos) for (const strict of [true, false]) {
+            for (const e of group) {
+              const s = state[e.id][dk] === 'work' ? sh[e.id][dk] : null; if (!s) continue;
+              if ((needW && !e.canWarehouse) && (needS && !e.canShowroom)) continue;
+              if (needW && !needS && !e.canWarehouse) continue; if (needS && !needW && !e.canShowroom) continue;
+              const aw = availWindow(e, dk), t = c.posAt;
+              if (t < s.start && (aw.earliest == null || aw.earliest <= t) && !(strict && !hoursOK(e, dk, { start: t, end: s.end }))) { s.start = t; widened = true; break; }
+              if (t + STEP > s.end && (aw.latest == null || aw.latest >= t + STEP) && !(strict && !hoursOK(e, dk, { start: s.start, end: t + STEP }))) { s.end = t + STEP; widened = true; break; }
+            }
+            if (widened) break;
           }
           if (!widened) { notes.push(`${loc} ${DAY_NAMES[i]}: could not fully cover ${needPos ? (needW && needS ? 'Warehouse and Showroom' : needW ? 'Warehouse' : 'Showroom') : 'minimum staffing'}`); break; }
         }
       });
+      fitHours(true);
       // 3) write cells
       for (const e of group) for (const dk of DAYS) {
         if (state[e.id][dk] === 'work') { const s = sh[e.id][dk]; set(e, dk, `${fmtTime(s.start)}-${fmtTime(s.end)}`); }
