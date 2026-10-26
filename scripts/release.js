@@ -38,7 +38,12 @@ const zip = path.join(dist, 'Santa-Rosa-Tile-Scheduler-win64.zip');
 const buf = fs.readFileSync(asar);
 const electron = require(path.join(root, 'node_modules', 'electron', 'package.json')).version;
 const meta = path.join(dist, 'update.json');
-fs.writeFileSync(meta, JSON.stringify({ version: next, electron, sha256: crypto.createHash('sha256').update(buf).digest('hex'), size: buf.length }, null, 1));
+// Sign the update so installed copies only accept releases made by this computer's private key (not stored on GitHub).
+const keyFile = path.join(require('os').homedir(), '.srts-update-signing-key.pem');
+if (!fs.existsSync(keyFile)) die(`Signing key not found: ${keyFile}. Without it installed copies would reject the update.`);
+const info = { version: next, electron, sha256: crypto.createHash('sha256').update(buf).digest('hex'), size: buf.length };
+info.sig = crypto.sign(null, Buffer.from(['srts-update', info.version, info.electron, info.sha256, info.size].join('\n')), crypto.createPrivateKey(fs.readFileSync(keyFile))).toString('base64');   // keep identical to src/updater.js
+fs.writeFileSync(meta, JSON.stringify(info, null, 1));
 
 // commit + tag + push, then the release
 run('git', ['add', '-A']);

@@ -83,7 +83,8 @@ function connect() {
     const server = http.createServer(async (req, res) => {
       const u = new URL(req.url, 'http://127.0.0.1');
       if (u.pathname !== '/callback') { res.writeHead(404); return res.end(); }
-      const page = (title, msg) => { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(`<!doctype html><meta charset=utf-8><title>${title}</title><body style="font:16px Segoe UI,sans-serif;max-width:480px;margin:15vh auto;text-align:center"><h2>${title}</h2><p>${msg}</p>`); };
+      const esc = x => String(x).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
+      const page = (title, msg) => { title = esc(title); msg = esc(msg); res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(`<!doctype html><meta charset=utf-8><title>${title}</title><body style="font:16px Segoe UI,sans-serif;max-width:480px;margin:15vh auto;text-align:center"><h2>${title}</h2><p>${msg}</p>`); };
       if (u.searchParams.get('state') !== state) { page('Sign-in failed', 'Unexpected response. Close this tab and try again.'); return finish(reject, new GoogleError('Sign-in response did not match. Try again.', 'auth')); }
       if (u.searchParams.get('error')) { page('Not connected', 'Google Calendar access was not granted. You can close this tab.'); return finish(reject, new GoogleError(u.searchParams.get('error') === 'access_denied' ? 'Access was not granted in the browser.' : `Google returned: ${u.searchParams.get('error')}`, 'denied')); }
       try {

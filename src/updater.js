@@ -9,6 +9,15 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const REPO = 'Brendooy/santa-rosa-tile-scheduler';
+// Updates must be signed by the publisher's private key (kept off GitHub, on the publishing computer only), so a hijacked
+// GitHub account or release cannot push code to installed copies. SRTS_UPDATE_PUBKEY lets the automated tests use their own key.
+const PUBLIC_KEY = (process.env.SRTS_DATA_DIR && process.env.SRTS_UPDATE_PUBKEY) || `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAhKHtX0jAvooBQNRlOHS3NeYbWQ0z14Ml1emvnSqT6VI=
+-----END PUBLIC KEY-----`;
+const SEMVER = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
+const signedText = i => ['srts-update', i.version, i.electron, i.sha256, i.size].join('\n');   // keep identical to scripts/release.js
+const signatureOk = i => { try { return !!i.sig && crypto.verify(null, Buffer.from(signedText(i)), PUBLIC_KEY, Buffer.from(i.sig, 'base64')); } catch (_) { return false; } };
+const sha256 = buf => crypto.createHash('sha256').update(buf).digest('hex');
 // SRTS_UPDATE_BASE points at a local fake release server; honoured only by the automated tests.
 const TB = process.env.SRTS_DATA_DIR && process.env.SRTS_UPDATE_BASE;
 const LATEST = TB ? TB + '/latest' : `https://api.github.com/repos/${REPO}/releases/latest`;
@@ -25,7 +34,7 @@ const get = async (url, opts = {}) => {
   return r;
 };
 const updDir = () => path.join(ctx.dir, 'updates');
-const staged = v => path.join(updDir(), `app-${v}.asar`);
+const staged = v => path.join(updDir(), `app-${v}.update`);
 
 /** Ask GitHub for the newest release. Never throws: problems end up in state.error (offline is normal). */
 async function check() {
@@ -35,9 +44,11 @@ async function check() {
     const meta = (rel.assets || []).find(a => a.name === 'update.json'), asar = (rel.assets || []).find(a => a.name === 'app.asar');
     const tag = String(rel.tag_name || '').replace(/^v/, '');
     state.checkedAt = new Date().toISOString();
+    if (tag && !SEMVER.test(tag)) throw new Error('The latest release has an unexpected version name, so it was ignored.');
     if (!tag || cmp(tag, ctx.version) <= 0) { state = { ...state, status: 'current', latest: tag || ctx.version }; return state; }
     if (!meta || !asar) { state = { ...state, status: 'manual', latest: tag }; return state; }
     const info = await (await get(meta.browser_download_url)).json();
+    if (info.version !== tag || !SEMVER.test(info.version) || !/^[0-9a-f]{64}$/.test(String(info.sha256)) || !Number.isInteger(info.size) || !signatureOk(info)) throw new Error('The update on GitHub is not signed by the publisher, so it was ignored.');
     if (info.electron && info.electron !== ctx.electronVersion) { state = { ...state, status: 'manual', latest: tag, notes: 'This version also needs a newer app engine, so it cannot be applied automatically. Download the full ZIP from the releases page.' }; return state; }
     state = { ...state, status: fs.existsSync(staged(tag)) ? 'ready' : 'available', latest: tag, info: { ...info, url: asar.browser_download_url }, notes: rel.body || '' };
   } catch (e) {
@@ -52,9 +63,8 @@ async function download() {
   fs.mkdirSync(updDir(), { recursive: true });
   const r = await get(info.url, { timeout: 300000 });
   const buf = Buffer.from(await r.arrayBuffer());
-  const sha = crypto.createHash('sha256').update(buf).digest('hex');
-  if (info.sha256 && sha !== String(info.sha256).toLowerCase()) throw new Error('The downloaded update did not match its checksum, so it was discarded. Try again.');
-  if (info.size && buf.length !== info.size) throw new Error('The downloaded update was incomplete. Try again.');
+  if (sha256(buf) !== info.sha256) throw new Error('The downloaded update did not match its checksum, so it was discarded. Try again.');
+  if (buf.length !== info.size) throw new Error('The downloaded update was incomplete. Try again.');
   fs.writeFileSync(staged(latest) + '.part', buf); fs.renameSync(staged(latest) + '.part', staged(latest));
   state = { ...state, status: 'ready' };
   return state;
@@ -63,6 +73,8 @@ async function download() {
 /** Spawn the swap script. Caller must quit the app right afterwards. */
 function applyAndRestart() {
   if (state.status !== 'ready') throw new Error('No update has been downloaded.');
+  const file = staged(state.latest);
+  if (!SEMVER.test(state.latest) || !fs.existsSync(file) || sha256(fs.readFileSync(file)) !== state.info.sha256) throw new Error('The downloaded update is missing or was changed. Check for updates again.');
   if (!ctx.app.isPackaged && !TB) throw new Error('Updates only apply to the installed (packaged) app.');
   const target = TB ? process.env.SRTS_UPDATE_TARGET : path.join(process.resourcesPath, 'app.asar');
   if (!target) throw new Error('No update target.');
