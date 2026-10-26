@@ -404,7 +404,9 @@
       <div class="card"><h3>General</h3><div class="fields">
         <label>Unpaid lunch for shifts of 6+ hours (minutes)<input type="number" min="0" max="120" data-gs="lunchMinutes" value="${s.lunchMinutes ?? 30}"></label>
         <label>Unpaid lunch for shifts of 9+ hours, e.g. 8-5 (minutes)<input type="number" min="0" max="180" data-gs="longLunchMinutes" value="${s.longLunchMinutes ?? 60}"></label>
-        <label>Warn when paid hours in one day exceed (0 = off)<input type="number" min="0" max="24" step="0.5" data-gs="maxDayHours" value="${s.maxDayHours ?? 8}"></label>
+        <label class="chk"><input type="checkbox" data-gs="warnLongDay" ${s.warnLongDay !== false ? 'checked' : ''}> Warn when one person is scheduled over the daily hours below</label>
+        <label>Daily paid-hours limit for that warning<input type="number" min="1" max="24" step="0.5" data-gs="maxDayHours" value="${s.maxDayHours ?? 8}"></label>
+        <label class="chk"><input type="checkbox" data-gs="warnSixDays" ${s.warnSixDays !== false ? 'checked' : ''}> Warn when one person is scheduled 6 days in a row</label>
         <label>“IN LATE” counts as starting (minutes after opening)<input type="number" min="0" max="480" data-gs="lateStartMinutes" value="${s.lateStartMinutes}"></label>
         <label>Ignore headcount in first/last (minutes)<input type="number" min="0" max="180" data-gs="rampMinutes" value="${s.rampMinutes ?? 60}"></label>
         <label>Automatic backups to keep<input type="number" min="5" max="200" data-gs="backupKeep" value="${s.backupKeep}"></label>
@@ -513,7 +515,7 @@
     if (el.dataset.av || el.dataset.pref) return setAvail(el);
     if (el.dataset.cal) { edit(d => { const s = new Set(d.settings.google.calendarIds); el.checked ? s.add(el.dataset.cal) : s.delete(el.dataset.cal); d.settings.google.calendarIds = [...s]; }); return; }
     if (el.dataset.g) { const k = el.dataset.g; edit(d => { d.settings.google[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? +el.value : el.value; }); return; }
-    if (el.dataset.gs) { const k = el.dataset.gs; edit(d => { d.settings[k] = el.type === 'number' ? Math.max(0, +el.value || 0) : el.value; }); return; }
+    if (el.dataset.gs) { const k = el.dataset.gs; edit(d => { d.settings[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Math.max(0, +el.value || 0) : el.value; }); return; }
     if (el.dataset.lc) { const [loc, k] = el.dataset.lc.split('|'); edit(d => { d.settings.locations[loc][k] = Math.max(0, +el.value || 0); }); return; }
     if (el.dataset.hr) {
       const [loc, dk, f] = el.dataset.hr.split('|'), l = S.data.settings.locations[loc];

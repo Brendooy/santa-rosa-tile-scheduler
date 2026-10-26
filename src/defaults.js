@@ -22,6 +22,8 @@ function defaultSettings() {
     lunchAfterHours: 6,
     longLunchMinutes: 60,    // ...and a full hour for shifts of longLunchAfterHours or more (e.g. 8-5)
     longLunchAfterHours: 9,
+    warnLongDay: true,       // warn when someone is scheduled for more than maxDayHours paid hours in a day
+    warnSixDays: true,       // warn when someone is scheduled six days in a row
     maxDayHours: 8,          // warn when one person is scheduled for more paid hours than this in a day (0 = off)
     lateStartMinutes: 90,    // "IN LATE" counts as starting this many minutes after opening
     rampMinutes: 60,         // minimum-headcount check ignores this long after opening and before closing

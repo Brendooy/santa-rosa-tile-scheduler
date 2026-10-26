@@ -26,6 +26,8 @@ function normalize(d) {
   for (const e of d.employees) { if (e.canWarehouse === undefined) e.canWarehouse = true; if (e.canShowroom === undefined) e.canShowroom = true; delete e.canOpen; delete e.canClose; delete e.role; if (e.keyholder === undefined) e.keyholder = false; }
   d.schedules = d.schedules && typeof d.schedules === 'object' ? d.schedules : {};
   d.pto = Array.isArray(d.pto) ? d.pto : [];
+  // Calendar entries imported before the "Works" type existed have no type: work it out from the event title.
+  for (const p of d.pto) if (!p.type) p.type = p.source === 'google' ? require('./logic').ptoTypeFromTitle(p.note) : 'off';
   d.settings = { ...def, ...(d.settings || {}) };
   d.settings.google = { ...def.google, ...(d.settings.google || {}) };
   d.settings.locations = d.settings.locations && Object.keys(d.settings.locations).length ? d.settings.locations : def.locations;

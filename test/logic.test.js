@@ -164,6 +164,28 @@ t('alerts: over 8 hours in a day, 6 days in a row', () => {
   assert.ok(!L.validate(w, d.employees, [], d.settings).some(i => /days in a row/.test(i.msg) && i.empId === e.id));
 });
 
+t('warnings can be switched off', () => {
+  const w = JSON.parse(JSON.stringify(wk)); const e = byName('Denis');
+  w.cells[e.id] = { mon: '7-5', tue: '8-5', wed: '8-5', thu: '8-5', fri: '8-5', sat: '8-3' };
+  const off = { ...d.settings, warnLongDay: false, warnSixDays: false };
+  assert.ok(!L.validate(w, d.employees, [], off).some(i => i.empId === e.id && /one day|in a row/.test(i.msg)));
+  assert.ok(L.validate(w, d.employees, [], { ...off, warnSixDays: true }).some(i => /in a row/.test(i.msg)));
+});
+
+t('old saved calendar entries without a type are repaired from their title', () => {
+  const store = require('../src/store');
+  const data = JSON.parse(JSON.stringify(d));
+  data.pto = [{ id: 'a', source: 'google', empId: byName('Brendan').id, start: '2026-10-31', end: '2026-10-31', note: 'brendan works' },
+              { id: 'b', source: 'google', empId: byName('Sandee').id, start: '2026-10-31', end: '2026-10-31', note: 'Sandee Off' },
+              { id: 'c', source: 'manual', empId: byName('Denis').id, start: '2026-10-27', end: '2026-10-27', note: 'PTO' }];
+  const n = store.normalize(data);
+  assert.deepStrictEqual(n.pto.map(p => p.type), ['work', 'off', 'off']);
+  // Brendan scheduled OFF on a calendar "works" day is a warning, not a problem
+  const sched = JSON.parse(JSON.stringify(n.schedules['2026-10-26'])); sched.cells[byName('Brendan').id].sat = 'OFF';
+  const iss = L.validate(sched, n.employees, n.pto, n.settings).filter(i => i.empId === byName('Brendan').id && i.day === 5);
+  assert.ok(iss.every(i => i.severity === 'warn') && iss.some(i => /calendar says they work/.test(i.msg)), JSON.stringify(iss));
+});
+
 t('autoSchedule keeps people within their maximum weekly hours (and 8 h days) when it can', () => {
   const emps = JSON.parse(JSON.stringify(d.employees));
   const sr = emps.filter(e => e.location === 'Santa Rosa'); sr.forEach(e => { e.maxHours = 30; });

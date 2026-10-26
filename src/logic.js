@@ -170,7 +170,7 @@
         if (!c.hours) return add('error', i, e, null, `${e.name} ${dayTag(i)}: scheduled while ${e.location} is closed.`);
         worked++; const ph = paidHours(c.shift, settings); hrs += ph;
         const dayMax = settings.maxDayHours ?? 8;
-        if (dayMax && ph > dayMax + 1e-9) add('warn', i, e, null, `${e.name} ${dayTag(i)}: ${+ph.toFixed(2)} hours scheduled in one day (over ${dayMax}).`);
+        if (settings.warnLongDay !== false && dayMax && ph > dayMax + 1e-9) add('warn', i, e, null, `${e.name} ${dayTag(i)}: ${+ph.toFixed(2)} hours scheduled in one day (over ${dayMax}).`);
         if (c.work) { /* the calendar explicitly says they work this day, so normal availability does not apply */ }
         else if (!aw.available) add('error', i, e, null, `${e.name} ${dayTag(i)}: not available this day.`);
         else {
@@ -181,7 +181,7 @@
       });
       let run = 0, best = 0;
       r.cells.forEach(c => { run = (c.parsed.kind === 'shift' || c.parsed.kind === 'late') && c.hours ? run + 1 : 0; best = Math.max(best, run); });
-      if (best >= 6) add('warn', null, e, null, `${e.name}: scheduled ${best} days in a row (Monday to Saturday with no day off).`);
+      if (settings.warnSixDays !== false && best >= 6) add('warn', null, e, null, `${e.name}: scheduled ${best} days in a row (Monday to Saturday with no day off).`);
       if (e.maxDays && worked > e.maxDays) add('warn', null, e, null, `${e.name}: ${worked} days scheduled (max ${e.maxDays}).`);
       if (e.maxHours && hrs > e.maxHours) add('warn', null, e, null, `${e.name}: ${hrs.toFixed(1)} hours scheduled (max ${e.maxHours}).`);
     }
@@ -401,6 +401,8 @@
     }
     return hit;
   }
+  /** "Brendan Works" = an extra work day; anything else (including anything saying "off") is time off. */
+  const ptoTypeFromTitle = title => /\b(works?|working)\b/i.test(title || '') && !/\boff\b/i.test(title || '') ? 'work' : 'off';
   /** events: Google Calendar API items. Returns {pto[], unmatched[], ignoredTimed}. */
   function eventsToPto(events, employees, settings) {
     const kw = (settings.google.keywords || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -413,7 +415,7 @@
       const e = matchEmployee(summary, employees);
       if (!e) { unmatched.push({ summary, start: ev.start.date, reason: 'no matching employee' }); continue; }
       // "Brendan Works" = an extra work day, not time off. Anything saying "off" stays time off.
-      const type = /\b(works?|working)\b/i.test(summary) && !/\boff\b/i.test(summary) ? 'work' : 'off';
+      const type = ptoTypeFromTitle(summary);
       pto.push({ id: 'g:' + ev.id + ':' + e.id, source: 'google', type, empId: e.id, start: ev.start.date, end: addDays(ev.end.date, -1) < ev.start.date ? ev.start.date : addDays(ev.end.date, -1), note: summary });
     }
     return { pto, unmatched, ignoredTimed };
@@ -422,5 +424,5 @@
   let seq = 0;
   const newId = p => `${p}${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
-  return { DAYS, DAY_NAMES, STEP, iso, parseISO, addDays, mondayOf, weekDates, dayLabel, fmtTime, parseClock, parseCell, resolveShift, paidHours, ptoOn, workOn, availFor, availWindow, hoursFor, weekGrid, coverageOf, validate, autoSchedule, matchEmployee, eventsToPto, newId };
+  return { DAYS, DAY_NAMES, STEP, iso, parseISO, addDays, mondayOf, weekDates, dayLabel, fmtTime, parseClock, parseCell, resolveShift, paidHours, ptoOn, workOn, availFor, availWindow, hoursFor, weekGrid, coverageOf, validate, autoSchedule, matchEmployee, eventsToPto, ptoTypeFromTitle, newId };
 });
