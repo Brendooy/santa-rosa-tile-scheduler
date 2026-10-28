@@ -202,7 +202,10 @@
     render();
     const left = issuesNow().filter(i => i.severity === 'error').length;
     if (r.notes.length || left) await alertBox('Auto-fill finished', `<p>The week was filled in, but a few things need your attention:</p><ul>${[...new Set(r.notes)].map(n => `<li>${esc(n)}</li>`).join('')}</ul>${left ? `<p>${left} problem(s) are listed under the grid.</p>` : ''}`);
-    else toast('Week filled in. No problems found.');
+    else {
+      const part = S.data.employees.filter(e => e.active && e.location !== 'Support' && (e.targetDays ?? 5) < 5).map(e => `${e.name} ${e.targetDays}`);
+      toast('Week filled in. No problems found.' + (part.length ? ` Target days/week set on the Staff tab: ${part.join(', ')}.` : ''));
+    }
   }
   async function copyLast() {
     const prev = S.data.schedules[L.addDays(S.week, -7)];
