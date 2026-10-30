@@ -33,7 +33,7 @@
   api.onFlush(async () => { await flush(); });
 
   // ---------------------------------------------------------------- helpers: modal / toast
-  function modal({ title, html, buttons }) {
+  function modal({ title, html, buttons, gate }) {
     return new Promise(res => {
       const root = $('#modalRoot');
       root.innerHTML = `<div class="back"><div class="dlg" role="dialog" aria-modal="true" aria-label="${esc(title)}"><h3>${esc(title)}</h3><div>${html}</div><div class="acts">${buttons.map((b, i) => `<button class="btn ${b.cls || ''}" data-i="${i}">${esc(b.label)}</button>`).join('')}</div></div></div>`;
@@ -41,7 +41,9 @@
       const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
       document.addEventListener('keydown', onKey, true);
       $$('.acts button', root).forEach(b => b.addEventListener('click', () => done(buttons[+b.dataset.i].value)));
-      const first = $('.acts .primary', root) || $('.acts button:last-child', root); if (first) first.focus();
+      const first = $('.acts .primary', root) || $('.acts button:last-child', root);
+      if (gate) { const cb = $('.gate', root); first.disabled = true; cb.addEventListener('change', () => { first.disabled = !cb.checked; }); cb.focus(); }
+      else if (first) first.focus();
     });
   }
   const confirmBox = (title, html, ok = 'OK', cls = 'primary') => modal({ title, html, buttons: [{ label: 'Cancel', value: false }, { label: ok, value: true, cls }] });
@@ -129,7 +131,7 @@
           const k = c.parsed.kind; if (c.shift) hrs += L.paidHours(c.shift, s);
           const sev = sevAt[r.emp.id + ':' + i];
           const cls = ['cell', k === 'off' || k === 'closed' ? 'off' : '', k === 'pto' ? 'pto' : '', k === 'late' ? 'late' : '', sev === 'error' ? 'bad' : sev === 'warn' ? 'warnc' : ''].join(' ');
-          const tip = (msgAt[r.emp.id + ':' + i] || []).join('\n') || (c.closure ? `Store closed: ${c.closure.note}` : c.pto ? `Time off: ${c.pto.note}` : c.work ? `Calendar: ${c.work.note}` : '');
+          const tip = (msgAt[r.emp.id + ':' + i] || []).join('\n') || (c.closure ? `Store closed: ${c.closure.note}` : c.pto ? `Time off: ${c.pto.note}` : c.work ? `Calendar: ${c.work.note}` : c.partial.length ? `Calendar: ${c.partial.map(q => q.note).join('; ')}` : '');
           const key = `${r.emp.id}:${c.dk}`;
           return `<td class="${cls}" title="${esc(tip)}"><input type="text" list="shiftlist" data-cell="${r.emp.id}|${c.dk}" data-key="${key}" value="${esc(c.raw)}" placeholder="${c.closure ? 'CLOSED' : c.pto ? 'PTO' : ''}" ${fin ? 'readonly' : ''} autocomplete="off" aria-label="${esc(r.emp.name)} ${L.DAY_NAMES[i]}"></td>`;
         }).join('');
@@ -157,7 +159,7 @@
       <div class="weeknav"><button class="btn" data-act="week-prev" aria-label="Previous week">◀</button><div class="range">${esc(rangeLbl)}</div><button class="btn" data-act="week-next" aria-label="Next week">▶</button>
         <button class="btn sm" data-act="week-today">This week</button><input type="date" id="weekPick" value="${S.week}" aria-label="Jump to week"></div>
       <span class="pill ${fin ? 'final' : 'draft'}">${fin ? 'FINAL' : 'DRAFT'}</span>
-      <span class="muted">${fin ? 'Published ' + esc(fmtDT(wk.publishedAt)) + ' (locked)' : (S.data.schedules[S.week] ? 'Not published' : 'Empty week')}</span>
+      <span class="muted">${fin ? 'Published ' + esc(fmtDT(wk.publishedAt)) + ' (locked)' + (wk.publishedWithProblems ? ` — with ${wk.publishedWithProblems} unresolved problem${wk.publishedWithProblems === 1 ? '' : 's'}` : '') : (S.data.schedules[S.week] ? 'Not published' : 'Empty week')}</span>
       <span class="grow"></span>
       <button class="btn" data-act="autofill" ${fin ? 'disabled' : ''} title="Fill the week using availability, PTO, qualifications and coverage rules">Auto-fill</button>
       <button class="btn" data-act="copy-last" ${fin ? 'disabled' : ''}>Copy last week</button>
@@ -221,15 +223,18 @@
   }
   async function publish() {
     const issues = issuesNow(), errs = issues.filter(i => i.severity === 'error'), warns = issues.filter(i => i.severity === 'warn');
-    if (errs.length) return alertBox('Cannot publish yet', `<p>Fix these ${errs.length} problem(s) first:</p><ul>${errs.slice(0, 12).map(i => `<li>${esc(i.msg)}</li>`).join('')}</ul>${errs.length > 12 ? `<p class="muted">…and ${errs.length - 12} more.</p>` : ''}`);
     const m = S.data.ptoMeta, stale = m.lastError || !m.lastRefreshed || Date.now() - new Date(m.lastRefreshed) > 24 * 3600e3;
     const html = `${warns.length ? `<p>${warns.length} warning(s):</p><ul>${warns.slice(0, 8).map(i => `<li>${esc(i.msg)}</li>`).join('')}</ul>` : '<p>No problems or warnings.</p>'}${stale ? `<p class="muted"><b>Note:</b> Google Calendar time off was ${m.lastError ? 'not refreshed successfully' : m.lastRefreshed ? 'last refreshed ' + esc(ago(m.lastRefreshed)) : 'never refreshed'}; newer requests may be missing.</p>` : ''}<p>Publishing marks this week as final and locks it. You can reopen it as a draft later. Use Print or Save PDF to share it.</p>`;
-    if (!await confirmBox('Publish as final?', html, 'Publish')) return;
-    edit(() => { const w = ensureWeek(); w.status = 'final'; w.publishedAt = new Date().toISOString(); stampWeek(w); }); render();
+    const problems = errs.length ? `<div class="b err" style="margin:0 0 8px"><b>${errs.length} problem${errs.length === 1 ? '' : 's'} still need${errs.length === 1 ? 's' : ''} fixing:</b><ul>${errs.slice(0, 12).map(i => `<li>${esc(i.msg)}</li>`).join('')}</ul>${errs.length > 12 ? `<p>…and ${errs.length - 12} more.</p>` : ''}</div>` : '';
+    const ok = errs.length
+      ? await modal({ title: 'Publish with problems?', html: problems + html + '<label class="chk" style="display:flex;gap:6px;margin-top:8px"><input type="checkbox" class="gate"> <b>I understand these problems are still on the schedule and I want to publish it anyway.</b></label>', gate: true, buttons: [{ label: 'Cancel', value: false }, { label: 'Publish anyway', value: true, cls: 'danger' }] })
+      : await confirmBox('Publish as final?', html, 'Publish');
+    if (!ok) return;
+    edit(() => { const w = ensureWeek(); w.status = 'final'; w.publishedAt = new Date().toISOString(); w.publishedWithProblems = errs.length; stampWeek(w); }); render();
   }
   async function reopen() {
     if (!await confirmBox('Reopen as draft?', '<p>The schedule becomes editable again and is no longer marked final.</p>', 'Reopen')) return;
-    edit(() => { const w = ensureWeek(); w.status = 'draft'; w.publishedAt = null; stampWeek(w); }); render();
+    edit(() => { const w = ensureWeek(); w.status = 'draft'; w.publishedAt = null; w.publishedWithProblems = 0; stampWeek(w); }); render();
   }
 
   // ---------------------------------------------------------------- printing
@@ -350,15 +355,15 @@
       ${m.lastSummary ? `<tr><td>Last result</td><td>${esc(m.lastSummary)}</td></tr>` : ''}</table>
       <p class="muted">Time off is stored on this computer. Without internet you can still schedule using what was last imported; it may not include newer requests.</p>`;
     const list = [...S.data.pto].sort((a, b) => b.start.localeCompare(a.start));
-    const ptoRows = list.map(p => `<tr><td>${p.type === 'closed' ? esc(p.loc || 'Whole store') : esc(nm(p.empId))}</td><td>${p.type === 'work' ? '<b>Works</b>' : p.type === 'closed' ? '<b>Store closed</b>' : 'Off'}</td><td>${esc(p.start)}</td><td>${esc(p.end)}</td><td>${p.source === 'google' ? 'Google Calendar' : 'Entered here'}</td><td>${esc(p.note || '')}</td><td>${p.source === 'google' ? '' : `<button class="btn sm danger" data-act="del-pto" data-id="${esc(p.id)}">Remove</button>`}</td></tr>`).join('');
+    const ptoRows = list.map(p => `<tr><td>${p.type === 'closed' ? esc(p.loc || 'Whole store') : esc(nm(p.empId))}</td><td>${p.type === 'work' ? '<b>Works</b>' : p.type === 'closed' ? '<b>Store closed</b>' : p.type === 'offat' ? `<b>Off at ${esc(L.fmtClock12(p.time))}</b>` : p.type === 'inat' ? `<b>In at ${esc(L.fmtClock12(p.time))}</b>` : 'Off'}</td><td>${esc(p.start)}</td><td>${esc(p.end)}</td><td>${p.source === 'google' ? 'Google Calendar' : 'Entered here'}</td><td>${esc(p.note || '')}</td><td>${p.source === 'google' ? '' : `<button class="btn sm danger" data-act="del-pto" data-id="${esc(p.id)}">Remove</button>`}</td></tr>`).join('');
     const un = (m.unmatched || []).slice(0, 30);
     return `<div class="page">
       <div class="card"><h3>Google Calendar</h3>${gbox}</div>
       <div class="card"><h3>Refresh status</h3>${status}</div>
       <div class="card"><h3>Time off on file (${list.length})</h3>
-        <div class="row" style="margin-bottom:8px"><select id="pEmp">${emps.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select><input type="date" id="pFrom" aria-label="From"><input type="date" id="pTo" aria-label="To"><select id="pType" aria-label="Type"><option value="off">Off</option><option value="work">Works</option><option value="closed">Store closed (everyone)</option></select><input type="text" id="pNote" placeholder="Note (optional)"><button class="btn" data-act="add-pto">Add time off</button></div>
+        <div class="row" style="margin-bottom:8px"><select id="pEmp">${emps.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select><input type="date" id="pFrom" aria-label="From"><input type="date" id="pTo" aria-label="To"><select id="pType" aria-label="Type"><option value="off">Off</option><option value="work">Works</option><option value="offat">Off at (time)</option><option value="inat">In at (time)</option><option value="closed">Store closed (everyone)</option></select><input type="text" id="pTime" placeholder="Time, e.g. 10" size="8" aria-label="Time for Off at / In at"><input type="text" id="pNote" placeholder="Note (optional)"><button class="btn" data-act="add-pto">Add time off</button></div>
         <table class="plain"><thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Source</th><th>Note</th><th></th></tr></thead><tbody>${ptoRows || '<tr><td colspan="7" class="muted">No time off recorded.</td></tr>'}</tbody></table>
-        <p class="muted">“Works” entries (calendar titles like “Brendan Works”) are extra work days, not time off: availability is ignored for that day and Auto-fill schedules the person. A calendar event titled “Store closed” (or “Ukiah closed”) closes the store that day: Auto-fill writes CLOSED for everyone and nobody can be scheduled.</p></div>
+        <p class="muted">“Works” entries (calendar titles like “Brendan Works”) are extra work days, not time off: availability is ignored for that day and Auto-fill schedules the person. Titles like “Buddy off at 10” (leaves at 10) and “Buddy in at 10” (starts at 10) only limit that day's hours: scheduling past 10 / before 10 gives a warning and Auto-fill respects them. A calendar event titled “Store closed” (or “Ukiah closed”) closes the store that day: Auto-fill writes CLOSED for everyone and nobody can be scheduled.</p></div>
       ${un.length ? `<div class="card"><h3>Calendar events that were not matched to an employee</h3><table class="plain"><tbody>${un.map(u => `<tr><td>${esc(u.start)}</td><td>${esc(u.summary)}</td><td class="muted">${esc(u.reason)}</td></tr>`).join('')}</tbody></table><p class="muted">If one of these is someone's time off, make sure their name in the Staff tab matches the event title.</p></div>` : ''}</div>`;
   }
   async function gRefresh() {
@@ -403,7 +408,7 @@
         <label>Showroom people required<input type="number" min="0" max="9" data-lc="${name}|minShowroom" value="${l.minShowroom}"></label></div>
         <table class="plain"><thead><tr><th>Day</th><th>Closed</th><th>Opens</th><th>Closes</th><th>Default shift</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     }).join('');
-    return `<div class="page"><p class="muted" style="margin-top:0">These rules drive the coverage checks, Auto-fill and the publish rule. Missing Warehouse or Showroom coverage blocks publishing; low headcount is a warning.</p>${loc}
+    return `<div class="page"><p class="muted" style="margin-top:0">These rules drive the coverage checks, Auto-fill and the publish rule. Missing Warehouse or Showroom coverage is a red problem (you can still publish after confirming); low headcount is a warning.</p>${loc}
       <div class="card"><h3>General</h3><div class="fields">
         <label>Unpaid lunch for shifts of 6+ hours (minutes)<input type="number" min="0" max="120" data-gs="lunchMinutes" value="${s.lunchMinutes ?? 30}"></label>
         <label>Unpaid lunch for shifts of 9+ hours, e.g. 8-5 (minutes)<input type="number" min="0" max="180" data-gs="longLunchMinutes" value="${s.longLunchMinutes ?? 60}"></label>
@@ -494,10 +499,12 @@
       case 'g-disconnect': if (await confirmBox('Disconnect Google Calendar?', '<p>The sign-in is removed from this computer. Time off already imported stays on file.</p>', 'Disconnect', 'danger')) { S.info.google = await api.google.disconnect(); S.cals = null; render(); } return;
       case 'add-pto': {
         const closed = $('#pType').value === 'closed';
+        const timed = ['offat', 'inat'].includes($('#pType').value), time = timed ? L.parseTitleTime($('#pTime').value) : null;
+        if (timed && time == null) return alertBox('Missing time', '<p>Type the time, for example <b>10</b>, <b>10:30</b> or <b>3pm</b>.</p>');
         const empId = closed ? null : $('#pEmp').value, from = $('#pFrom').value, to = $('#pTo').value || from;
         if ((!empId && !closed) || !from) return alertBox('Missing information', '<p>Choose an employee and a start date.</p>');
         if (to < from) return alertBox('Check the dates', '<p>The end date is before the start date.</p>');
-        { const type = $('#pType').value; edit(d => d.pto.push({ id: L.newId('p'), source: 'manual', type, empId, start: from, end: to, note: $('#pNote').value.trim() || (type === 'work' ? 'Works' : type === 'closed' ? 'Store closed' : 'PTO') })); } return render();
+        { const type = $('#pType').value; edit(d => d.pto.push({ id: L.newId('p'), source: 'manual', type, ...(timed ? { time } : {}), empId, start: from, end: to, note: $('#pNote').value.trim() || (type === 'work' ? 'Works' : type === 'closed' ? 'Store closed' : timed ? `${type === 'offat' ? 'Off at' : 'In at'} ${L.fmtClock12(time)}` : 'PTO') })); } return render();
       }
       case 'del-pto': edit(d => { d.pto = d.pto.filter(p => p.id !== t.dataset.id); }); return render();
       case 'upd-check': return checkUpdates(true);

@@ -82,8 +82,17 @@ const dlg = async (page, btn) => { await page.waitForSelector('#modalRoot .dlg')
   // ===== 4. offline scheduling features: auto-fill next week, publish rules, print/PDF
   await page.click('[data-act="week-next"]');
   assert.match(await page.textContent('.pill'), /DRAFT/);
-  await page.click('[data-act="publish"]');                      // empty week must NOT publish
-  assert.match(await dlg(page), /Cannot publish yet/); await page.click('#modalRoot .acts button');
+  await page.click('[data-act="publish"]');                      // empty week: allowed only after the user confirms they understand
+  assert.match(await dlg(page), /Publish with problems\?[\s\S]*I understand/);
+  assert.strictEqual(await page.isDisabled('#modalRoot .acts button:has-text("Publish anyway")'), true);
+  await page.check('#modalRoot .gate');
+  assert.strictEqual(await page.isDisabled('#modalRoot .acts button:has-text("Publish anyway")'), false);
+  await page.click('#modalRoot .acts button:has-text("Cancel")');
+  assert.match(await page.textContent('.pill'), /DRAFT/);
+  await page.click('[data-act="publish"]'); await dlg(page); await page.check('#modalRoot .gate'); await page.click('#modalRoot .acts button:has-text("Publish anyway")');
+  assert.match(await page.textContent('.pill'), /FINAL/); assert.match(await page.textContent('.pubinfo, #view'), /unresolved problem/);
+  await page.click('[data-act="reopen"]'); await dlg(page, 'Reopen');
+  assert.match(await page.textContent('.pill'), /DRAFT/);
   await page.click('[data-act="autofill"]');
   const t = await page.waitForSelector('#modalRoot .dlg, #toast.show', { timeout: 5000 }); if (await page.$('#modalRoot .dlg')) { await dlg(page, 'OK'); }
   assert.notStrictEqual(await cell(page, 'Buddy', 'Tuesday').inputValue(), '');
@@ -94,7 +103,7 @@ const dlg = async (page, btn) => { await page.waitForSelector('#modalRoot .dlg')
   assert.match(await page.textContent('.pill'), /FINAL/);
   assert.strictEqual(await cell(page, 'Buddy', 'Tuesday').getAttribute('readonly'), '');
   await shot(page, '03-final');
-  ok('auto-fill produces a valid week; publish blocked when invalid, allowed when valid, final week locks');
+  ok('auto-fill produces a valid week; publishing with problems needs an "I understand" tick, a clean week publishes directly, final week locks');
   process.env.SRTS_TEST_PATHS = JSON.stringify([pdfFile]);
   await app.close();
   ({ app, page } = await launch(A, { SRTS_TEST_PATHS: JSON.stringify([pdfFile]) }));

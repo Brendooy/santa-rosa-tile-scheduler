@@ -30,6 +30,21 @@
     if (isEnd && startMin != null && t <= startMin) t += 12 * 60;
     return t;
   }
+  /** Clock text with am/pm for messages: 600 -> "10 AM", 930 -> "3:30 PM" is 15:30. */
+  const fmtClock12 = m => { const h = Math.floor(m / 60), mm = m % 60; return `${h % 12 || 12}${mm ? ':' + pad(mm) : ''} ${h >= 12 ? 'PM' : 'AM'}`; };
+  /** "10", "10:30", "10am", "3 pm", "noon" -> minutes, or null. Bare 1-6 means afternoon like everywhere else. */
+  function parseTitleTime(txt) {
+    const t = String(txt || '').toLowerCase().replace(/[.\s]/g, '');
+    if (t === 'noon') return 720;
+    const m = /^(\d{1,2})(?::(\d{2}))?(am|pm|a|p)?$/.exec(t);
+    if (!m) return null;
+    let h = +m[1]; const mi = m[2] ? +m[2] : 0;
+    if (h > 23 || mi > 59) return null;
+    if (m[3] && /^p/.test(m[3])) { if (h < 12) h += 12; }
+    else if (m[3]) { if (h === 12) h = 0; }
+    else if (h < 7) h += 12;
+    return h * 60 + mi;
+  }
   /** Parse a grid cell. Returns {kind:'blank'|'off'|'pto'|'late'|'shift'|'invalid', start, end, openEnded} */
   function parseCell(text) {
     const t = (text || '').trim();
@@ -70,7 +85,11 @@
   // ---------- PTO ----------
   // Calendar entries are either time off (default) or "works": an extra day the person is scheduled to work.
   function ptoOn(pto, empId, date) {
-    return (pto || []).find(p => p.type !== 'work' && p.empId === empId && p.start <= date && date <= p.end) || null;
+    return (pto || []).find(p => (!p.type || p.type === 'off') && p.empId === empId && p.start <= date && date <= p.end) || null;
+  }
+  // "Buddy off at 10" (leaves at 10) and "Buddy in at 10" (starts at 10): limits on the hours that day, not a day off
+  function partialsOn(pto, empId, date) {
+    return (pto || []).filter(p => (p.type === 'offat' || p.type === 'inat') && p.time != null && p.empId === empId && p.start <= date && date <= p.end);
   }
   function workOn(pto, empId, date) {
     return (pto || []).find(p => p.type === 'work' && p.empId === empId && p.start <= date && date <= p.end) || null;
@@ -114,7 +133,7 @@
         const p = parseCell(raw);
         const hours = hoursFor(settings, e.location, dk, dates[i], pto);
         const sh = hours ? resolveShift(p, hours, settings) : null;
-        return { dk, date: dates[i], raw, parsed: p, hours, shift: sh, closure: closedOn(pto, e.location, dates[i]), pto: ptoOn(pto, e.id, dates[i]), work: workOn(pto, e.id, dates[i]) };
+        return { dk, date: dates[i], raw, parsed: p, hours, shift: sh, closure: closedOn(pto, e.location, dates[i]), partial: partialsOn(pto, e.id, dates[i]), pto: ptoOn(pto, e.id, dates[i]), work: workOn(pto, e.id, dates[i]) };
       });
       rows.push({ emp: e, cells });
     }
@@ -185,6 +204,10 @@
           if (aw.earliest != null && c.shift.start < aw.earliest) add('error', i, e, null, `${e.name} ${dayTag(i)}: starts before their earliest time (${e.availability[c.dk].earliest}).`);
           if (aw.latest != null && c.shift.end > aw.latest) add('error', i, e, null, `${e.name} ${dayTag(i)}: works past their latest time (${e.availability[c.dk].latest}).`);
         }
+        for (const q of c.partial || []) {
+          if (q.type === 'offat' && c.shift.end > q.time) add('warn', i, e, null, `${e.name} ${dayTag(i)}: the calendar says "${q.note}" (off at ${fmtClock12(q.time)}) but the shift runs until ${fmtClock12(c.shift.end)}.`);
+          if (q.type === 'inat' && c.shift.start < q.time) add('warn', i, e, null, `${e.name} ${dayTag(i)}: the calendar says "${q.note}" (in at ${fmtClock12(q.time)}) but the shift starts at ${fmtClock12(c.shift.start)}.`);
+        }
         if (c.shift.start < c.hours.open - 30 || c.shift.end > c.hours.close + 30) add('warn', i, e, null, `${e.name} ${dayTag(i)}: shift falls well outside store hours.`);
       });
       let run = 0, best = 0;
@@ -225,6 +248,15 @@
     const cells = JSON.parse(JSON.stringify(week.cells || {}));
     const wi = weekIndex(week.start);
     const staff = employees.filter(e => e.active && e.location !== 'Support');
+    // availability window with the calendar's "off at" / "in at" limits applied
+    const awin = (e, dk) => {
+      const aw = availWindow(e, dk);
+      for (const q of partialsOn(pto, e.id, dates[DAYS.indexOf(dk)])) {
+        if (q.type === 'inat') aw.earliest = aw.earliest == null ? q.time : Math.max(aw.earliest, q.time);
+        if (q.type === 'offat') aw.latest = aw.latest == null ? q.time : Math.min(aw.latest, q.time);
+      }
+      return aw;
+    };
     const hrsOf0 = (loc, dk) => hoursFor(settings, loc, dk, dates[DAYS.indexOf(dk)], pto);
     const locked = (e, dk) => opts.onlyEmpty && ((cells[e.id] || {})[dk] || '').trim() !== '';
     const set = (e, dk, v) => { (cells[e.id] = cells[e.id] || {})[dk] = v; };
@@ -242,7 +274,7 @@
         state[e.id] = {};
         DAYS.forEach((dk, i) => {
           const h = hrsOf(dk);
-          const aw = availWindow(e, dk);
+          const aw = awin(e, dk);
           const pt = ptoOn(pto, e.id, dates[i]);
           if (locked(e, dk)) state[e.id][dk] = 'fixed';
           else if (closedDay(dk)) { state[e.id][dk] = 'off'; set(e, dk, 'CLOSED'); }
@@ -259,7 +291,7 @@
         let txt = a.shift || lh;
         let p = parseCell(txt);
         if (p.kind !== 'shift') p = parseCell(lh);
-        const aw = availWindow(e, dk);
+        const aw = awin(e, dk);
         let s = p.start, en = p.openEnded ? h.close : p.end;
         if (aw.earliest != null && s < aw.earliest) s = aw.earliest;
         if (aw.latest != null && en > aw.latest) en = aw.latest;
@@ -351,14 +383,14 @@
             for (const strict of [true, false]) {   // first try without pushing anyone over their weekly maximum
               for (const e of group) {
                 const s = e.keyholder && state[e.id][dk] === 'work' ? sh[e.id][dk] : null; if (!s) continue;
-                const aw = availWindow(e, dk);
+                const aw = awin(e, dk);
                 if (needKO && s.start > h.open && (aw.earliest == null || aw.earliest <= h.open) && !(strict && !hoursOK(e, dk, { start: h.open, end: s.end }))) { s.start = h.open; fixed = true; break; }
                 if (needKC && s.end < h.close && (aw.latest == null || aw.latest >= h.close) && !(strict && !hoursOK(e, dk, { start: s.start, end: h.close }))) { s.end = h.close; fixed = true; break; }
               }
               if (fixed) break;
             }
             if (fixed) continue;
-            const kp = group.filter(e => e.keyholder && state[e.id][dk] === 'off' && !ptoOn(pto, e.id, dates[i]) && !locked(e, dk) && availWindow(e, dk).available && shiftFor(e, dk) &&
+            const kp = group.filter(e => e.keyholder && state[e.id][dk] === 'off' && !ptoOn(pto, e.id, dates[i]) && !locked(e, dk) && awin(e, dk).available && shiftFor(e, dk) &&
               days(e) < (e.maxDays || e.targetDays || 5) &&
               (!needKO || shiftFor(e, dk).start <= h.open) && (!needKC || shiftFor(e, dk).end >= h.close))
               .sort((a, b) => (hoursOK(b, dk, shiftFor(b, dk)) - hoursOK(a, dk, shiftFor(a, dk))) || (days(a) >= 5) - (days(b) >= 5) || days(a) - days(b));
@@ -368,7 +400,7 @@
           }
           const needW = c.wShort, needS = c.sShort, needStaff = c.min < h.minStaff, needPos = needW || needS;
           if (!needPos && !needStaff) break;
-          const pick = group.filter(e => state[e.id][dk] === 'off' && !ptoOn(pto, e.id, dates[i]) && !locked(e, dk) && availWindow(e, dk).available && shiftFor(e, dk) &&
+          const pick = group.filter(e => state[e.id][dk] === 'off' && !ptoOn(pto, e.id, dates[i]) && !locked(e, dk) && awin(e, dk).available && shiftFor(e, dk) &&
             (!needW || e.canWarehouse) && (!needS || e.canShowroom) &&
             days(e) < (needPos ? (e.maxDays || e.targetDays || 5) : (e.targetDays || 5)) &&   // staffing top-ups never exceed target days
             (needPos || hoursOK(e, dk, shiftFor(e, dk))))                                      // ...or the weekly hour maximum
@@ -381,7 +413,7 @@
               const s = state[e.id][dk] === 'work' ? sh[e.id][dk] : null; if (!s) continue;
               if ((needW && !e.canWarehouse) && (needS && !e.canShowroom)) continue;
               if (needW && !needS && !e.canWarehouse) continue; if (needS && !needW && !e.canShowroom) continue;
-              const aw = availWindow(e, dk), t = c.posAt;
+              const aw = awin(e, dk), t = c.posAt;
               if (t < s.start && (aw.earliest == null || aw.earliest <= t) && !(strict && !hoursOK(e, dk, { start: t, end: s.end }))) { s.start = t; widened = true; break; }
               if (t + STEP > s.end && (aw.latest == null || aw.latest >= t + STEP) && !(strict && !hoursOK(e, dk, { start: s.start, end: t + STEP }))) { s.end = t + STEP; widened = true; break; }
             }
@@ -415,6 +447,16 @@
   }
   /** "Brendan Works" = an extra work day; anything else (including anything saying "off") is time off. */
   const ptoTypeFromTitle = title => /\b(works?|working)\b/i.test(title || '') && !/\boff\b/i.test(title || '') ? 'work' : 'off';
+  const TIME_RE = '(\\d{1,2}(?::\\d{2})?\\s*(?:a\\.?m\\.?|p\\.?m\\.?|a|p)?|noon)(?![\\w:])';
+  /** Calendar title -> {type:'off'|'work'|'offat'|'inat', time?}. "Buddy off at 10" / "Buddy in at 10" are limits for that day. */
+  function ptoKindFromTitle(title) {
+    const t = title || '';
+    let m = new RegExp('\\boff\\s+at\\s+' + TIME_RE, 'i').exec(t), tm = m && parseTitleTime(m[1]);
+    if (tm != null) return { type: 'offat', time: tm };
+    m = new RegExp('\\b(?:in|start|starts|starting)\\s+at\\s+' + TIME_RE, 'i').exec(t); tm = m && parseTitleTime(m[1]);
+    if (tm != null) return { type: 'inat', time: tm };
+    return { type: ptoTypeFromTitle(t) };
+  }
   /** events: Google Calendar API items. Returns {pto[], unmatched[], ignoredTimed}. */
   function eventsToPto(events, employees, settings) {
     const kw = (settings.google.keywords || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -434,8 +476,8 @@
       const e = matchEmployee(summary, employees);
       if (!e) { unmatched.push({ summary, start: ev.start.date, reason: 'no matching employee' }); continue; }
       // "Brendan Works" = an extra work day, not time off. Anything saying "off" stays time off.
-      const type = ptoTypeFromTitle(summary);
-      pto.push({ id: 'g:' + ev.id + ':' + e.id, source: 'google', type, empId: e.id, start: ev.start.date, end: addDays(ev.end.date, -1) < ev.start.date ? ev.start.date : addDays(ev.end.date, -1), note: summary });
+      const kind = ptoKindFromTitle(summary), type = kind.type;
+      pto.push({ id: 'g:' + ev.id + ':' + e.id, source: 'google', type, ...(kind.time != null ? { time: kind.time } : {}), empId: e.id, start: ev.start.date, end: addDays(ev.end.date, -1) < ev.start.date ? ev.start.date : addDays(ev.end.date, -1), note: summary });
     }
     return { pto, unmatched, ignoredTimed };
   }
@@ -443,5 +485,5 @@
   let seq = 0;
   const newId = p => `${p}${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
-  return { DAYS, DAY_NAMES, STEP, iso, parseISO, addDays, mondayOf, weekDates, dayLabel, fmtTime, parseClock, parseCell, resolveShift, paidHours, ptoOn, workOn, closedOn, availFor, availWindow, hoursFor, weekGrid, coverageOf, validate, autoSchedule, matchEmployee, eventsToPto, ptoTypeFromTitle, newId };
+  return { DAYS, DAY_NAMES, STEP, iso, parseISO, addDays, mondayOf, weekDates, dayLabel, fmtTime, parseClock, parseCell, resolveShift, paidHours, ptoOn, workOn, closedOn, partialsOn, ptoKindFromTitle, parseTitleTime, fmtClock12, availFor, availWindow, hoursFor, weekGrid, coverageOf, validate, autoSchedule, matchEmployee, eventsToPto, ptoTypeFromTitle, newId };
 });

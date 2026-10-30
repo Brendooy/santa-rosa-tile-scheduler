@@ -1,7 +1,7 @@
 {
   "name": "srts-scheduler",
   "productName": "Santa Rosa Tile Scheduler",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "description": "Weekly staff scheduler for Santa Rosa Tile Supply",
   "main": "main.js",
   "scripts": {

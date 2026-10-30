@@ -19,7 +19,7 @@ THE SCHEDULE TAB
     (hover for the reason).
   - "Coverage" rows under each location show: Warehouse and Showroom (enough people
     qualified for each are on the floor all day) and min (fewest people on the floor).
-  - Under the grid: "Problems to fix" (these block publishing) and "Warnings".
+  - Under the grid: "Problems to fix" (publishing is still possible after you confirm you understand) and "Warnings".
   - Support row: type names of support staff for each day.
 
 CHECKS (what counts as a problem)
@@ -53,8 +53,9 @@ AUTO-FILL
   every cell can still be edited. "Copy last week" copies the previous week.
 
 DRAFT AND FINAL
-  New weeks are DRAFT. "Publish as final" is allowed only when there are no
-  problems (warnings need a confirmation). A final week is locked; "Reopen as
+  New weeks are DRAFT. "Publish as final" is always possible. With warnings it asks you to
+  confirm; with red problems it lists them and you must tick "I understand..." before
+  "Publish anyway" works. The week then shows how many problems were left. A final week is locked; "Reopen as
   draft" unlocks it. Publishing does not send anything anywhere: use Print or
   Save PDF to give the schedule to employees. Drafts print with a DRAFT mark.
 
@@ -84,6 +85,10 @@ TIME OFF & GOOGLE TAB
     or "Santa Rosa closed" closes just that one. Auto-fill writes CLOSED for everyone, closed
     days are skipped by the coverage checks, and scheduling someone that day is a problem.
     You can also type CLOSED in a cell, or add a "Store closed" entry by hand.
+  - "Buddy off at 10" means Buddy leaves at 10: it is NOT a day off, but scheduling him
+    past 10 gives a warning, and Auto-fill ends his shift at 10. "Buddy in at 10" means he
+    starts at 10: a shift starting earlier gives a warning and Auto-fill starts him at 10.
+    (Times like 10, 10:30, 10am, 3pm, noon.) You can also add these by hand.
   - The page and the Schedule tab show when time off was last refreshed. If a
     refresh fails, your existing time off is kept and a red banner says so.
     Time off added in Google since the last refresh will NOT show until you refresh.

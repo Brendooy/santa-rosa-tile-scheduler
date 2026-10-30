@@ -27,7 +27,10 @@ function normalize(d) {
   d.schedules = d.schedules && typeof d.schedules === 'object' ? d.schedules : {};
   d.pto = Array.isArray(d.pto) ? d.pto : [];
   // Calendar entries imported before the "Works" type existed have no type: work it out from the event title.
-  for (const p of d.pto) if (!p.type) p.type = p.source === 'google' ? require('./logic').ptoTypeFromTitle(p.note) : 'off';
+  for (const p of d.pto) {
+    if (p.source === 'google' && (!p.type || p.type === 'off')) { const k = require('./logic').ptoKindFromTitle(p.note); p.type = k.type; if (k.time != null) p.time = k.time; }
+    else if (!p.type) p.type = 'off';
+  }
   d.settings = { ...def, ...(d.settings || {}) };
   d.settings.google = { ...def.google, ...(d.settings.google || {}) };
   d.settings.locations = d.settings.locations && Object.keys(d.settings.locations).length ? d.settings.locations : def.locations;

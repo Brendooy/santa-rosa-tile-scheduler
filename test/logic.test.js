@@ -186,6 +186,33 @@ t('"Store closed" calendar days: CLOSED cells, Auto-fill, no coverage, schedulin
   assert.ok(L.validate(w2, d.employees, r.pto, d.settings).some(i => i.severity === 'warn' && /marked CLOSED but the store is open/.test(i.msg)));
 });
 
+t('"off at" / "in at" calendar titles limit the hours of that day (warning), and Auto-fill respects them', () => {
+  const evs = [{ id: 'o1', summary: 'Buddy off at 10', start: { date: '2026-11-13' }, end: { date: '2026-11-15' } },
+               { id: 'i1', summary: 'Brendan in at 10:30', start: { date: '2026-11-12' }, end: { date: '2026-11-13' } }];
+  const r = L.eventsToPto(evs, d.employees, d.settings);
+  assert.deepStrictEqual(r.pto.map(p => [p.type, p.time, p.start, p.end]), [['offat', 600, '2026-11-13', '2026-11-14'], ['inat', 630, '2026-11-12', '2026-11-12']]);
+  const buddy = byName('Buddy'), brendan = byName('Brendan');
+  // it is NOT time off: scheduling Buddy is not a "has PTO" problem
+  const week = { start: '2026-11-09', cells: { [buddy.id]: { mon: 'OFF', tue: 'OFF', wed: 'OFF', thu: 'OFF', fri: '8-5', sat: '8-3:30' } } };
+  const v = L.validate(week, d.employees, r.pto, d.settings).filter(i => i.empId === buddy.id);
+  assert.ok(!v.some(i => /PTO/.test(i.msg)), JSON.stringify(v));
+  assert.ok(v.some(i => i.severity === 'warn' && /Buddy Friday: .*off at 10 AM.*until 5 PM/.test(i.msg)), v.map(i => i.msg).join(' | '));
+  week.cells[buddy.id].fri = '7:30-10';
+  assert.ok(!L.validate(week, d.employees, r.pto, d.settings).some(i => /Buddy Friday/.test(i.msg) && /off at/.test(i.msg)));
+  // "in at": a shift before that time warns
+  week.cells[brendan.id] = { thu: '8-5' };
+  assert.ok(L.validate(week, d.employees, r.pto, d.settings).some(i => /Brendan Thursday: .*in at 10:30 AM.*starts at 8 AM/.test(i.msg)));
+  // Auto-fill: nobody starts before "in at", nobody works past "off at"
+  const a = L.autoSchedule({ start: '2026-11-09', cells: {} }, d.employees, r.pto, d.settings);
+  const sh = (e, dk) => L.resolveShift(L.parseCell(a.cells[e.id][dk]), L.hoursFor(d.settings, e.location, dk), d.settings);
+  for (const dk of ['fri', 'sat']) { const s = sh(buddy, dk); assert.ok(!s || s.end <= 600, `Buddy ${dk} ${a.cells[buddy.id][dk]}`); }
+  { const s = sh(brendan, 'thu'); assert.ok(!s || s.start >= 630, `Brendan thu ${a.cells[brendan.id].thu}`); }
+  // old saved entries that were stored as plain time off get upgraded from their title
+  const store = require('../src/store'); const data = JSON.parse(JSON.stringify(d));
+  data.pto = [{ id: 'z', source: 'google', type: 'off', empId: buddy.id, start: '2026-11-13', end: '2026-11-14', note: 'Buddy off at 10' }];
+  assert.deepStrictEqual([store.normalize(data).pto[0].type, data.pto[0].time], ['offat', 600]);
+});
+
 t('warnings can be switched off', () => {
   const w = JSON.parse(JSON.stringify(wk)); const e = byName('Denis');
   w.cells[e.id] = { mon: '7-5', tue: '8-5', wed: '8-5', thu: '8-5', fri: '8-5', sat: '8-3' };
