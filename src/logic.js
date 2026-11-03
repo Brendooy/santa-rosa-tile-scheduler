@@ -197,7 +197,7 @@
         if (!c.hours) return add('error', i, e, null, `${e.name} ${dayTag(i)}: scheduled while ${e.location} is closed${c.closure ? ` (${c.closure.note || 'store closed'})` : ''}.`);
         worked++; const ph = paidHours(c.shift, settings); hrs += ph;
         const dayMax = settings.maxDayHours ?? 8;
-        if (settings.warnLongDay !== false && dayMax && ph > dayMax + 1e-9) add('warn', i, e, null, `${e.name} ${dayTag(i)}: ${+ph.toFixed(2)} hours scheduled in one day (over ${dayMax}).`);
+        if (settings.warnLongDay === true && dayMax && ph > dayMax + 1e-9) add('warn', i, e, null, `${e.name} ${dayTag(i)}: ${+ph.toFixed(2)} hours scheduled in one day (over ${dayMax}).`);
         if (c.work) { /* the calendar explicitly says they work this day, so normal availability does not apply */ }
         else if (!aw.available) add('error', i, e, null, `${e.name} ${dayTag(i)}: not available this day.`);
         else {
@@ -323,7 +323,7 @@
       const dayPaid = (e, dk) => paidOf(working(e, dk));
       const weekPaid = e => DAYS.reduce((t, dk) => t + dayPaid(e, dk), 0);
       const hoursOK = (e, dk, ns) => !e.maxHours || weekPaid(e) - dayPaid(e, dk) + paidOf(ns) <= e.maxHours + 1e-9;
-      const capDay = settings.maxDayHours ?? 8;
+      const capDay = settings.warnLongDay === true ? (settings.maxDayHours ?? 8) : 0;   // only trim days to 8 h when that warning is switched on
       // shorten one auto-scheduled shift by 30 minutes (end first, then start) if coverage and keyholder rules still hold
       const shrink = (e, dk) => {
         const x = state[e.id][dk] === 'work' ? sh[e.id][dk] : null; if (!x || x.end - x.start <= 240) return false;

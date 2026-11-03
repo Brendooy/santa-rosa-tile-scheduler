@@ -52,6 +52,7 @@
   function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3500); }
 
   // ---------------------------------------------------------------- week data
+  const locName = l => l === 'Support' ? 'Delivery Driver' : l;
   const blankWeek = () => ({ start: S.week, status: 'draft', cells: {}, support: {}, publishedAt: null, updatedAt: null });
   const getWeek = () => S.data.schedules[S.week] || blankWeek();
   const ensureWeek = () => { const w = S.data.schedules[S.week] || (S.data.schedules[S.week] = blankWeek()); w.cells ||= {}; w.support ||= {}; return w; };
@@ -145,8 +146,8 @@
       }).join('');
       body += `<tr class="cov"><td class="nm">Coverage</td>${cov}<td></td></tr>`;
     }
-    const sup = L.DAYS.map(dk => `<td class="cell sup"><input type="text" data-sup="${dk}" value="${esc((wk.support || {})[dk] || '')}" ${fin ? 'readonly' : ''} aria-label="Support ${dk}" autocomplete="off"></td>`).join('');
-    body += `<tr class="band"><td colspan="8">SUPPORT</td></tr><tr><td class="nm"></td>${sup}<td></td></tr>`;
+    const sup = L.DAYS.map(dk => `<td class="cell sup"><input type="text" data-sup="${dk}" value="${esc((wk.support || {})[dk] || '')}" ${fin ? 'readonly' : ''} aria-label="Delivery Driver ${dk}" autocomplete="off"></td>`).join('');
+    body += `<tr class="band"><td colspan="8">DELIVERY DRIVER</td></tr><tr><td class="nm"></td>${sup}<td></td></tr>`;
 
     const defaults = new Set(['OFF', 'PTO', 'IN LATE', 'CLOSED']);
     for (const loc of LOCS()) Object.values(s.locations[loc].defaultShift || {}).forEach(x => defaults.add(x));
@@ -246,7 +247,7 @@
       rows += `<tr class="band"><td colspan="7">${esc(loc.toUpperCase())}</td></tr>`;
       for (const r of grid.rows.filter(x => x.emp.location === loc)) rows += `<tr><td class="nm">${esc(r.emp.name)}</td>${r.cells.map(c => `<td class="${c.parsed.kind === 'off' || c.parsed.kind === 'closed' ? 'off' : c.parsed.kind === 'pto' ? 'pto' : ''}">${esc(c.raw)}</td>`).join('')}</tr>`;
     }
-    rows += `<tr class="band"><td colspan="7">SUPPORT</td></tr><tr><td class="nm">&nbsp;</td>${L.DAYS.map(dk => `<td class="sup">${esc((wk.support || {})[dk] || '')}</td>`).join('')}</tr>`;
+    rows += `<tr class="band"><td colspan="7">DELIVERY DRIVER</td></tr><tr><td class="nm">&nbsp;</td>${L.DAYS.map(dk => `<td class="sup">${esc((wk.support || {})[dk] || '')}</td>`).join('')}</tr>`;
     return `<!doctype html><html><head><meta charset="utf-8"><title>Schedule ${S.week}</title><style>
       @page { size: letter landscape; margin: 0.5in; }
       body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; }
@@ -276,7 +277,7 @@
     const e = selEmp();
     const groups = [...LOCS(), 'Support'].map(loc => {
       const m = emps.filter(x => x.location === loc); if (!m.length) return '';
-      return `<h4>${esc(loc)}</h4>${m.map(x => `<button class="item ${x.id === S.staffSel ? 'on' : ''}" data-act="sel-emp" data-id="${x.id}"><span>${esc(x.name)}</span><span class="tag">${x.active ? [x.canWarehouse ? 'warehouse' : '', x.canShowroom ? 'showroom' : '', x.keyholder ? 'keys' : ''].filter(Boolean).join(' · ') : 'inactive'}</span></button>`).join('')}`;
+      return `<h4>${esc(locName(loc))}</h4>${m.map(x => `<button class="item ${x.id === S.staffSel ? 'on' : ''}" data-act="sel-emp" data-id="${x.id}"><span>${esc(x.name)}</span><span class="tag">${x.active ? [x.canWarehouse ? 'warehouse' : '', x.canShowroom ? 'showroom' : '', x.keyholder ? 'keys' : ''].filter(Boolean).join(' · ') : 'inactive'}</span></button>`).join('')}`;
     }).join('');
     let editor = '<div class="card muted">No employees yet. Click “Add employee”.</div>';
     if (e) {
@@ -289,7 +290,7 @@
       editor = `<div class="card"><h3>${esc(e.name)}</h3>
         <div class="fields">
           <label>Name<input type="text" data-f="name" value="${esc(e.name)}"></label>
-          <label>Location<select data-f="location">${[...LOCS(), 'Support'].map(l => `<option ${l === e.location ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+          <label>Location<select data-f="location">${[...LOCS(), 'Support'].map(l => `<option value="${esc(l)}" ${l === e.location ? 'selected' : ''}>${esc(locName(l))}</option>`).join('')}</select></label>
           <label>Target days / week<input type="number" min="0" max="6" data-f="targetDays" value="${e.targetDays ?? 5}"></label>
           <label>Max days / week<input type="number" min="0" max="6" data-f="maxDays" value="${e.maxDays ?? 6}"></label>
           <label>Max hours / week (0 = no limit)<input type="number" min="0" max="80" data-f="maxHours" value="${e.maxHours || 0}"></label>
@@ -298,7 +299,7 @@
           <label class="chk"><input type="checkbox" data-f="canShowroom" ${e.canShowroom ? 'checked' : ''}> Can work Showroom</label>
           <label class="chk"><input type="checkbox" data-f="keyholder" ${e.keyholder ? 'checked' : ''}> Keyholder (can open and close the store)</label>
         </div></div>
-        ${e.location === 'Support' ? '<div class="card muted">Support staff appear in the Support row of the schedule (type names in the grid). Availability and qualifications do not apply.</div>' : `
+        ${e.location === 'Support' ? '<div class="card muted">Delivery drivers appear in the Delivery Driver row of the schedule (type names in the grid). Availability and qualifications do not apply.</div>' : `
         <div class="card"><h3>Availability</h3><p class="muted" style="margin:0 0 6px">Auto-fill and the checks never schedule someone on an unavailable day or outside these times. “Usual shift” is what Auto-fill uses for that day (e.g. 10-3). Times like 8:30 or 5.</p>
         <table class="plain"><thead><tr><th>Day</th><th>Available</th><th>Earliest start</th><th>Latest end</th><th>Usual shift</th><th>Prefer off</th></tr></thead><tbody>${av}</tbody></table></div>`}
         <div class="row"><button class="btn danger" data-act="del-emp">Delete employee…</button><span class="muted">Tip: untick “Active” instead to keep their history.</span></div>`;
@@ -412,7 +413,7 @@
       <div class="card"><h3>General</h3><div class="fields">
         <label>Unpaid lunch for shifts of 6+ hours (minutes)<input type="number" min="0" max="120" data-gs="lunchMinutes" value="${s.lunchMinutes ?? 30}"></label>
         <label>Unpaid lunch for shifts of 9+ hours, e.g. 8-5 (minutes)<input type="number" min="0" max="180" data-gs="longLunchMinutes" value="${s.longLunchMinutes ?? 60}"></label>
-        <label class="chk"><input type="checkbox" data-gs="warnLongDay" ${s.warnLongDay !== false ? 'checked' : ''}> Warn when one person is scheduled over the daily hours below</label>
+        <label class="chk"><input type="checkbox" data-gs="warnLongDay" ${s.warnLongDay === true ? 'checked' : ''}> Warn when one person is scheduled over the daily hours below</label>
         <label>Daily paid-hours limit for that warning<input type="number" min="1" max="24" step="0.5" data-gs="maxDayHours" value="${s.maxDayHours ?? 8}"></label>
         <label class="chk"><input type="checkbox" data-gs="warnSixDays" ${s.warnSixDays !== false ? 'checked' : ''}> Warn when one person is scheduled 6 days in a row</label>
         <label>“IN LATE” counts as starting (minutes after opening)<input type="number" min="0" max="480" data-gs="lateStartMinutes" value="${s.lateStartMinutes}"></label>
@@ -481,7 +482,7 @@
       case 'go-pto': S.tab = 'pto'; return render();
       case 'week-prev': S.week = L.addDays(S.week, -7); return render();
       case 'week-next': S.week = L.addDays(S.week, 7); return render();
-      case 'week-today': S.week = L.mondayOf(L.iso(new Date())); return render();
+      case 'week-today': S.week = L.mondayOf(S.today || L.iso(new Date())); return render();
       case 'autofill': return autofill();
       case 'copy-last': return copyLast();
       case 'clear-week': return clearWeek();
@@ -551,6 +552,7 @@
   (async () => {
     try {
       const r = await api.load();
+      if (r.today) { S.today = r.today; S.week = L.mondayOf(r.today); }   // automated tests pin the date
       S.data = r.data; S.notice = r.notice; S.info = { dataDir: r.dataDir, version: r.version, backups: r.backups, google: r.google };
       S.save = { state: 'saved', at: new Date().toISOString() };
       // jump to the newest saved week if "this week" has nothing yet

@@ -32,6 +32,9 @@ function normalize(d) {
     else if (!p.type) p.type = 'off';
   }
   d.settings = { ...def, ...(d.settings || {}) };
+  // v1.2.1: the over-8-hours-in-a-day warning is now off unless the manager switches it on again
+  d.meta = d.meta || {};
+  if (!d.meta.longDayWarnOff) { d.settings.warnLongDay = false; d.meta.longDayWarnOff = true; }
   d.settings.google = { ...def.google, ...(d.settings.google || {}) };
   d.settings.locations = d.settings.locations && Object.keys(d.settings.locations).length ? d.settings.locations : def.locations;
   for (const l of Object.values(d.settings.locations)) { if (l.minWarehouse === undefined) l.minWarehouse = 1; if (l.minShowroom === undefined) l.minShowroom = 1; delete l.minOpeners; delete l.minClosers; }

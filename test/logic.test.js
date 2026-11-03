@@ -139,9 +139,28 @@ t('"Name Works" calendar events are extra work days, not PTO', () => {
   assert.notStrictEqual(L.autoSchedule(week, emps, r.pto, d.settings).cells[b.id].sat, 'OFF');
 });
 
-t('the photographed week only warns about 7:30-5 days (8.5 paid hours); headcount ramp-up ignored', () => {
+t('the photographed week has no warnings by default (long days only warn if switched on; headcount ramp-up ignored)', () => {
   const w = L.validate(wk, d.employees, [], d.settings).filter(i => i.severity === 'warn');
-  assert.ok(w.length && w.every(x => /hours scheduled in one day \(over 8\)/.test(x.msg)), w.map(x => x.msg).join(' | '));
+  assert.deepStrictEqual(w.map(x => x.msg), []);
+  const on = L.validate(wk, d.employees, [], { ...d.settings, warnLongDay: true }).filter(i => i.severity === 'warn');
+  assert.ok(on.length && on.every(x => /hours scheduled in one day \(over 8\)/.test(x.msg)), on.map(x => x.msg).join(' | '));
+});
+
+t('only a persons own maximum hours warns about hours by default', () => {
+  const w = JSON.parse(JSON.stringify(wk)); const emps = JSON.parse(JSON.stringify(d.employees)); const e = emps.find(x => x.name === 'Denis');
+  w.cells[e.id] = { mon: '8-5', tue: '8-5', wed: '8-5', thu: '8-5', fri: '8-5', sat: 'OFF' };   // 8 paid hours each = 40 h
+  const none = L.validate(w, emps, [], d.settings).filter(i => i.empId === e.id);
+  assert.ok(!none.some(i => /hours/.test(i.msg)), none.map(i => i.msg).join(' | '));
+  e.maxHours = 35;
+  assert.ok(L.validate(w, emps, [], d.settings).some(i => i.empId === e.id && i.severity === 'warn' && /40.0 hours scheduled \(max 35\)/.test(i.msg)));
+});
+
+t('saved settings from before: the daily-hours warning is switched off once', () => {
+  const store = require('../src/store'); const data = JSON.parse(JSON.stringify(d));
+  data.settings.warnLongDay = true; delete data.meta.longDayWarnOff;
+  assert.strictEqual(store.normalize(data).settings.warnLongDay, false);
+  data.settings.warnLongDay = true;                       // the manager switches it back on: it stays on
+  assert.strictEqual(store.normalize(data).settings.warnLongDay, true);
 });
 
 t('unpaid lunch: none under 6 h, 30 min from 6 h, 1 h from 9 h (8-5 = 8 paid)', () => {
@@ -156,7 +175,7 @@ t('unpaid lunch: none under 6 h, 30 min from 6 h, 1 h from 9 h (8-5 = 8 paid)', 
 t('alerts: over 8 hours in a day, 6 days in a row', () => {
   const w = JSON.parse(JSON.stringify(wk)); const e = byName('Denis');
   w.cells[e.id] = { mon: '7-5', tue: '8-5', wed: '8-5', thu: '8-5', fri: '8-5', sat: '8-3' };
-  const msgs = L.validate(w, d.employees, [], d.settings).filter(i => i.empId === e.id).map(i => i.msg);
+  const msgs = L.validate(w, d.employees, [], { ...d.settings, warnLongDay: true }).filter(i => i.empId === e.id).map(i => i.msg);
   assert.ok(msgs.some(m => /Denis Monday: 9 hours scheduled in one day \(over 8\)/.test(m)), msgs.join(' | '));
   assert.ok(!msgs.some(m => /Denis Tuesday.*one day/.test(m)));
   assert.ok(msgs.some(m => /Denis: scheduled 6 days in a row/.test(m)), msgs.join(' | '));
@@ -238,10 +257,11 @@ t('old saved calendar entries without a type are repaired from their title', () 
 t('autoSchedule keeps people within their maximum weekly hours (and 8 h days) when it can', () => {
   const emps = JSON.parse(JSON.stringify(d.employees));
   const sr = emps.filter(e => e.location === 'Santa Rosa'); sr.forEach(e => { e.maxHours = 30; });
+  const on = { ...d.settings, warnLongDay: true };   // also check the optional 8-hour day limit
   let start = '2026-11-02';
   for (let i = 0; i < 6; i++, start = L.addDays(start, 7)) {
-    const week = { start, cells: {} }; const r = L.autoSchedule(week, emps, [], d.settings); week.cells = r.cells;
-    const warn = L.validate(week, emps, [], d.settings);
+    const week = { start, cells: {} }; const r = L.autoSchedule(week, emps, [], on); week.cells = r.cells;
+    const warn = L.validate(week, emps, [], on);
     assert.deepStrictEqual(warn.filter(x => x.severity === 'error').map(x => x.msg), [], start);
     assert.ok(!warn.some(x => /hours scheduled in one day|days in a row/.test(x.msg)), warn.map(x => x.msg).join(' | '));
     for (const e of sr) {

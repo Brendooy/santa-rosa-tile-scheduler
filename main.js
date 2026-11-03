@@ -66,7 +66,7 @@ h('app:load', () => {
   backupKeep = r.data.settings.backupKeep || 30;
   if (!r.firstRun) autoBackup('on start');
   else store.save(r.data);
-  return { ...r, dataDir, version: app.getVersion(), backups: store.listBackups(), google: google.status(), test: TEST, autoUpdateCheck: !TEST || !!process.env.SRTS_UPDATE_BASE };
+  return { ...r, dataDir, version: app.getVersion(), backups: store.listBackups(), google: google.status(), test: TEST, today: TEST ? process.env.SRTS_TODAY || null : null, autoUpdateCheck: !TEST || !!process.env.SRTS_UPDATE_BASE };
 });
 h('data:save', async data => { backupKeep = (data.settings && data.settings.backupKeep) || 30; return await store.save(data); });
 h('backup:list', () => store.listBackups());

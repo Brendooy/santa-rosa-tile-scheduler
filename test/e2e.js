@@ -33,7 +33,7 @@ const fake = http.createServer((req, res) => {
 });
 
 async function launch(dataDir, extraEnv = {}) {
-  const app = await electron.launch({ executablePath: EXE, args: ARGS, env: { ...process.env, ...(process.env.SRTS_CLEAN_PATH ? { PATH: String.raw`C:\Windows\System32;C:\Windows` } : {}), SRTS_DATA_DIR: dataDir, SRTS_GOOGLE_TEST_BASE: `http://127.0.0.1:${fake.address().port}`, ...extraEnv } });
+  const app = await electron.launch({ executablePath: EXE, args: ARGS, env: { ...process.env, ...(process.env.SRTS_CLEAN_PATH ? { PATH: String.raw`C:\Windows\System32;C:\Windows` } : {}), SRTS_DATA_DIR: dataDir, SRTS_TODAY: '2026-10-26', SRTS_GOOGLE_TEST_BASE: `http://127.0.0.1:${fake.address().port}`, ...extraEnv } });
   const page = await app.firstWindow();
   await page.waitForSelector('#view .sheet, #view .card');
   return { app, page };

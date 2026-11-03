@@ -1,6 +1,6 @@
 # Santa Rosa Tile Scheduler
 
-Portable Windows desktop app for the weekly staff schedule (Santa Rosa, Ukiah, Support).
+Portable Windows desktop app for the weekly staff schedule (Santa Rosa, Ukiah, Delivery Driver).
 No install: extract the ZIP from the latest release and run `Santa Rosa Tile Scheduler.exe`.
 
 - Data is stored locally in `%APPDATA%\Santa Rosa Tile Scheduler` with automatic backups.

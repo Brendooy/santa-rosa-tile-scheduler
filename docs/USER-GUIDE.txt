@@ -20,7 +20,7 @@ THE SCHEDULE TAB
   - "Coverage" rows under each location show: Warehouse and Showroom (enough people
     qualified for each are on the floor all day) and min (fewest people on the floor).
   - Under the grid: "Problems to fix" (publishing is still possible after you confirm you understand) and "Warnings".
-  - Support row: type names of support staff for each day.
+  - Delivery Driver row: type the delivery driver's name for each day.
 
 CHECKS (what counts as a problem)
   - A cell is empty or not understood.
@@ -32,14 +32,14 @@ CHECKS (what counts as a problem)
     be working when the store opens and when it closes. This check stays off until at
     least one person at that location is marked keyholder.
   Warnings (do not block): fewer people than the store minimum mid-day, a person
-  over their max days/hours, MORE THAN 8 PAID HOURS IN ONE DAY for one person,
-  SIX DAYS IN A ROW (Monday to Saturday with no day off), a shift well outside store
+  over their own max days/hours (set per person on the Staff tab; a 9-hour
+  day is NOT a warning unless you switch that on), SIX DAYS IN A ROW (Monday to Saturday with no day off), a shift well outside store
   hours, PTO marked OFF.
 
 PAID HOURS
   Hours totals take off an unpaid lunch: 30 minutes once a shift is 6 hours or longer,
   and 1 hour once it is 9 hours or longer. So 8-4 = 7.5 paid hours, 8-5 = 8, 7:30-5 = 8.5.
-  The lunch lengths, the daily-hours limit, and on/off switches for the "over 8 hours in a day"
+  The lunch lengths, the optional (off by default) daily-hours warning and limit, and the on/off switch for the "over 8 hours in a day"
   and "6 days in a row" warnings are all on the Store rules tab.
 
 AUTO-FILL
