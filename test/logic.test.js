@@ -232,6 +232,54 @@ t('"off at" / "in at" calendar titles limit the hours of that day (warning), and
   assert.deepStrictEqual([store.normalize(data).pto[0].type, data.pto[0].time], ['offat', 600]);
 });
 
+t('Google Sheet rows: layout, OFF / PTO / CLOSED, hours, Delivery Driver, inactive skipped', () => {
+  const emps = JSON.parse(JSON.stringify(d.employees));
+  const brinley = emps.find(e => e.name === 'Brinley'), brendan = emps.find(e => e.name === 'Brendan'), denis = emps.find(e => e.name === 'Denis');
+  brinley.active = false;
+  const week = { start: '2026-11-02', status: 'final', publishedAt: '2026-11-04T15:04:00', support: { tue: 'Mark', thu: 'Mark' },
+    cells: { [brendan.id]: { mon: '8-5', tue: 'OFF', wed: 'PTO', thu: '7:30-4:30', fri: 'CLOSED', sat: '8-3:30' }, [denis.id]: { mon: '', tue: '', wed: '', thu: '', fri: '', sat: '' } } };
+  const pto = [{ id: 'c', type: 'closed', loc: null, start: '2026-11-06', end: '2026-11-06', note: 'Store closed' }];
+  const m = L.scheduleToRows(week, { employees: emps, pto, settings: d.settings });
+  assert.strictEqual(m.title, 'Week of 2026-11-02');
+  const text = r => r.cells.map(c => c.v);
+  assert.deepStrictEqual(text(m.rows[0]).slice(0, 1), ['SANTA ROSA TILE SUPPLY SCHEDULE']);
+  assert.match(text(m.rows[2])[0], /^FINAL – published Nov 4, 2026/);
+  assert.deepStrictEqual(text(m.rows[3]), ['', ...L.DAY_NAMES, 'Hrs']);
+  assert.deepStrictEqual(text(m.rows[4]), ['', '2 November', '3 November', '4 November', '5 November', '6 November', '7 November', '']);
+  assert.ok(m.rows.every(r => r.cells.length === m.cols));
+  const bands = m.rows.filter(r => r.kind === 'band').map(r => r.cells[0].v);
+  assert.deepStrictEqual(bands, ['SANTA ROSA', 'UKIAH', 'DELIVERY DRIVER']);
+  assert.ok(!m.rows.some(r => r.cells[0].v === 'Brinley'), 'inactive staff are skipped');
+  const b = m.rows.find(r => r.cells[0].v === 'Brendan');
+  assert.deepStrictEqual(text(b).slice(1, 7), ['8-5', 'OFF', 'PTO', '7:30-4:30', 'CLOSED', '8-3:30']);
+  assert.deepStrictEqual(b.cells.slice(1, 7).map(c => c.style), ['', 'off', 'pto', '', 'off', '']);
+  // hours are a number: 8-5 = 8, 7:30-4:30 = 8, 8-3:30 = 7 (7.5 h minus 30 min lunch)... paidHours rules
+  assert.strictEqual(typeof b.cells[7].v, 'number');
+  assert.strictEqual(b.cells[7].v, 8 + 8 + 7);
+  // the closure day shows CLOSED even when the cell was left blank
+  const dn = m.rows.find(r => r.cells[0].v === 'Denis');
+  assert.strictEqual(dn.cells[5].v, 'CLOSED'); assert.strictEqual(dn.cells[5].style, 'off'); assert.strictEqual(dn.cells[7].v, '');
+  const drv = m.rows[m.rows.length - 1];
+  assert.deepStrictEqual(text(drv), ['', '', 'Mark', '', 'Mark', '', '', '']);
+  assert.strictEqual(L.scheduleToRows({ ...week, status: 'draft' }, { employees: emps, pto, settings: d.settings }).rows[2].cells[0].v, 'DRAFT');
+});
+
+t('Google Sheet links: the ID is read from a URL or a bare ID', () => {
+  assert.strictEqual(L.parseSpreadsheetId('https://docs.google.com/spreadsheets/d/1AbC-dEf_GhIjKlMnOpQrStUvWxYz0123456789/edit#gid=0'), '1AbC-dEf_GhIjKlMnOpQrStUvWxYz0123456789');
+  assert.strictEqual(L.parseSpreadsheetId('  1AbC-dEf_GhIjKlMnOpQrStUvWxYz0123456789 '), '1AbC-dEf_GhIjKlMnOpQrStUvWxYz0123456789');
+  assert.strictEqual(L.parseSpreadsheetId('https://example.com/x'), null);
+  assert.strictEqual(L.parseSpreadsheetId('short'), null);
+  assert.strictEqual(L.sheetTitleFor('2026-11-02'), 'Week of 2026-11-02');
+});
+
+t('old saved data gets Google Sheet settings defaulted', () => {
+  const store = require('../src/store'); const data = JSON.parse(JSON.stringify(d)); delete data.settings.sheets;
+  const n = store.normalize(data);
+  assert.deepStrictEqual(n.settings.sheets, { spreadsheetId: '', sendOnPublish: true });
+  data.settings.sheets = { spreadsheetId: 'abc' };
+  assert.deepStrictEqual(store.normalize(data).settings.sheets, { spreadsheetId: 'abc', sendOnPublish: true });
+});
+
 t('warnings can be switched off', () => {
   const w = JSON.parse(JSON.stringify(wk)); const e = byName('Denis');
   w.cells[e.id] = { mon: '7-5', tue: '8-5', wed: '8-5', thu: '8-5', fri: '8-5', sat: '8-3' };

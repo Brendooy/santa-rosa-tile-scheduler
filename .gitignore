@@ -7,5 +7,6 @@ google-client.json
 data.json
 backups/
 google-auth.bin
+google-sheets-auth.bin
 *.log
 test/shots/

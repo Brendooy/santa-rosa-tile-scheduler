@@ -1,6 +1,11 @@
 (() => {
   'use strict';
-  const L = window.Logic, api = window.api;
+  const L = window.Logic;
+  // rebuild Errors (with their `code`) from the {ok:false, error, code} results the preload hands back
+  const unwrap = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'function' && k !== 'onFlush'
+    ? (...a) => v(...a).then(r => { if (!r.ok) { const e = new Error(r.error); e.code = r.code; throw e; } return r.value; })
+    : (v && typeof v === 'object' ? unwrap(v) : v)]));
+  const api = unwrap(window.api);
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -161,10 +166,12 @@
         <button class="btn sm" data-act="week-today">This week</button><input type="date" id="weekPick" value="${S.week}" aria-label="Jump to week"></div>
       <span class="pill ${fin ? 'final' : 'draft'}">${fin ? 'FINAL' : 'DRAFT'}</span>
       <span class="muted">${fin ? 'Published ' + esc(fmtDT(wk.publishedAt)) + ' (locked)' + (wk.publishedWithProblems ? ` — with ${wk.publishedWithProblems} unresolved problem${wk.publishedWithProblems === 1 ? '' : 's'}` : '') : (S.data.schedules[S.week] ? 'Not published' : 'Empty week')}</span>
+      ${sheetStatusHtml(wk)}
       <span class="grow"></span>
       <button class="btn" data-act="autofill" ${fin ? 'disabled' : ''} title="Fill the week using availability, PTO, qualifications and coverage rules">Auto-fill</button>
       <button class="btn" data-act="copy-last" ${fin ? 'disabled' : ''}>Copy last week</button>
       <button class="btn" data-act="clear-week" ${fin ? 'disabled' : ''}>Clear</button>
+      ${(s.sheets || {}).spreadsheetId ? `<button class="btn" data-act="sheet-send" ${fin && S.sheetBusy !== S.week ? '' : 'disabled'} title="${fin ? 'Write this published week to the shared Google Sheet' : 'Publish the week first'}">Send this week to Google Sheet</button>` : ''}
       <button class="btn" data-act="print">Print</button>
       <button class="btn" data-act="pdf">Save PDF</button>
       ${fin ? '<button class="btn" data-act="reopen">Reopen as draft</button>' : '<button class="btn primary" data-act="publish">Publish as final</button>'}
@@ -232,10 +239,86 @@
       : await confirmBox('Publish as final?', html, 'Publish');
     if (!ok) return;
     edit(() => { const w = ensureWeek(); w.status = 'final'; w.publishedAt = new Date().toISOString(); w.publishedWithProblems = errs.length; stampWeek(w); }); render();
+    sheetsOnPublish();
   }
   async function reopen() {
     if (!await confirmBox('Reopen as draft?', '<p>The schedule becomes editable again and is no longer marked final.</p>', 'Reopen')) return;
     edit(() => { const w = ensureWeek(); w.status = 'draft'; w.publishedAt = null; w.publishedWithProblems = 0; stampWeek(w); }); render();
+  }
+
+  // ---------------------------------------------------------------- Google Sheet copy of published weeks
+  const sheetsCfg = () => S.data.settings.sheets || {};
+  const clock = iso => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  function sheetStatusHtml(wk) {
+    if (!sheetsCfg().spreadsheetId) return '';
+    const w = S.data.schedules[S.week], m = w && w.sheet;
+    if (S.sheetBusy === S.week) return '<span class="muted">Sending to Google Sheet…</span>';
+    if (m && m.lastError) return `<span style="color:var(--err)" title="${esc(m.lastError)}">Not sent: ${esc(m.lastError)}${m.pending ? ' (will retry)' : ''}</span>`;
+    if (m && m.sentAt) return `<span class="muted">Sent to Google Sheet ${esc(clock(m.sentAt))}</span>`;
+    return '';
+  }
+  let sheetChain = Promise.resolve();
+  /** Copy a final week to the shared Google Sheet. Failures are remembered on the week ("pending") and never affect the local publish. */
+  function sendWeekToSheet(start, { quiet } = {}) {
+    sheetChain = sheetChain.then(async () => {
+      const w = S.data.schedules[start], cfg = sheetsCfg();
+      if (!w || w.status !== 'final' || !cfg.spreadsheetId) return;
+      S.sheetBusy = start; render();
+      try {
+        await flush();
+        const r = await api.sheets.send({ spreadsheetId: cfg.spreadsheetId, week: { ...w, start }, data: { employees: S.data.employees, pto: S.data.pto, settings: S.data.settings }, prior: w.sheet || null });
+        edit(() => { w.sheet = { sheetId: r.sheetId, title: r.title, sentAt: r.sentAt, lastError: null, errorCode: null, pending: false }; });
+        S.shReauth = false;
+        if (!quiet) toast('Sent to Google Sheet.');
+      } catch (e) {
+        edit(() => { w.sheet = { ...(w.sheet || {}), lastError: e.message, errorCode: e.code || null, pending: true }; });
+        if (e.code === 'reauth') S.shReauth = true;
+      } finally { S.sheetBusy = ''; render(); }
+    });
+    return sheetChain;
+  }
+  const sheetsOnPublish = () => { const c = sheetsCfg(); if (c.spreadsheetId && c.sendOnPublish !== false) sendWeekToSheet(S.week); };
+  async function retryPendingSheets() {
+    const c = sheetsCfg();
+    if (!c.spreadsheetId || c.sendOnPublish === false || !(S.info.sheets || {}).connected) return;
+    for (const [start, w] of Object.entries(S.data.schedules).sort()) if (w.status === 'final' && w.sheet && w.sheet.pending) await sendWeekToSheet(start, { quiet: true });
+  }
+  async function shConnect() {
+    S.busy = 'shconnect'; render();
+    try { S.info.sheets = await api.sheets.connect(); S.shReauth = false; toast('Google Sheets connected.'); S.busy = ''; render(); retryPendingSheets(); }
+    catch (e) { S.busy = ''; render(); alertBox('Could not connect', esc(e.message)); }
+  }
+  async function shTest() {
+    const id = sheetsCfg().spreadsheetId;
+    S.shTest = { state: 'busy' }; render();
+    try { const r = await api.sheets.test(id); S.shTest = { ok: true, text: `Connected to “${r.title}” as ${r.account || 'the connected account'} (${r.tabs} tab${r.tabs === 1 ? '' : 's'}).` }; S.shReauth = false; }
+    catch (e) { S.shTest = { ok: false, text: e.message }; if (e.code === 'reauth') S.shReauth = true; }
+    render();
+  }
+  function setSheetField(el) {
+    if (el.dataset.sh === 'url') {
+      const v = el.value.trim();
+      if (!v) { edit(d => { d.settings.sheets.spreadsheetId = ''; }); S.shTest = null; return render(); }
+      const id = L.parseSpreadsheetId(v);
+      if (!id) { toast('That does not look like a Google Sheets link.'); return render(); }
+      edit(d => { d.settings.sheets.spreadsheetId = id; }); S.shTest = null; render(); toast('Sheet link saved.');
+    } else edit(d => { d.settings.sheets[el.dataset.sh] = el.checked; });
+  }
+  function sheetsCard() {
+    const g = S.info.google || {}, cfg = sheetsCfg(), st = S.info.sheets || {}, t = S.shTest;
+    const url = cfg.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${cfg.spreadsheetId}/edit` : '';
+    const reauth = S.shReauth || Object.values(S.data.schedules).some(w => w.sheet && w.sheet.pending && w.sheet.errorCode === 'reauth');
+    let conn;
+    if (!g.configured) conn = '<p>Set up Google in the card above first (the one-time Client ID step).</p>';
+    else if (!st.connected || reauth) conn = `<p>${st.connected ? 'Google Sheets needs to be reconnected.' : 'Not connected.'} <button class="btn primary" data-act="sh-connect" ${S.busy ? 'disabled' : ''}>${S.busy === 'shconnect' ? 'Waiting for browser…' : (st.connected ? 'Reconnect Google Sheets' : 'Connect Google Sheets')}</button>${st.connected ? ' <button class="btn danger sm" data-act="sh-disconnect">Disconnect</button>' : ''}</p>`;
+    else conn = `<p>✓ Connected${st.account ? ' as <b>' + esc(st.account) + '</b>' : ''}. <button class="btn danger sm" data-act="sh-disconnect">Disconnect</button></p>`;
+    return `<div class="card"><h3>Google Sheet for published schedules</h3>
+      <p>When you publish a week, the app copies it into a new tab of one shared Google Sheet (“Week of 2026-11-16”). Older weeks stay. Republishing a week overwrites that week's tab.</p>
+      <p class="muted"><b>What this permission means:</b> Google's wording is “See, edit, create and delete all your Google Sheets spreadsheets.” In plain terms, while connected this app <b>can view and edit your Google Sheets</b>. It only ever writes to the one spreadsheet linked below, adds one tab per week, and never changes tabs it did not create. It also learns which Google account connected (the email address). This is a separate sign-in from the read-only calendar one, stored encrypted on this computer only and never included in exports. The connected account must be an <b>Editor</b> of the Sheet.</p>
+      ${conn}
+      <div class="fields"><label>Google Sheet link<input type="text" data-sh="url" value="${esc(url)}" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
+        <label class="chk"><input type="checkbox" data-sh="sendOnPublish" ${cfg.sendOnPublish !== false ? 'checked' : ''}> Send to Google Sheet when I publish</label></div>
+      <div class="row"><button class="btn" data-act="sh-test" ${cfg.spreadsheetId && st.connected && !S.busy ? '' : 'disabled'}>Test connection</button>${t ? `<span id="shTestText" style="${t.ok === false ? 'color:var(--err)' : ''}">${t.state === 'busy' ? 'Testing…' : (t.ok ? '✓ ' : '✗ ') + esc(t.text)}</span>` : ''}</div></div>`;
   }
 
   // ---------------------------------------------------------------- printing
@@ -352,7 +435,7 @@
       <p><button class="btn primary" data-act="g-refresh" ${S.busy ? 'disabled' : ''}>${S.busy === 'refresh' ? 'Refreshing…' : 'Refresh time off now'}</button></p>`;
     const status = `<table class="plain"><tr><td>Last successful refresh</td><td><b>${m.lastRefreshed ? esc(fmtDT(m.lastRefreshed)) + ' (' + esc(ago(m.lastRefreshed)) + ')' : 'never'}</b></td></tr>
       <tr><td>Last attempt</td><td>${m.lastAttempt ? esc(fmtDT(m.lastAttempt)) : 'never'}</td></tr>
-      ${m.lastError ? `<tr><td>Problem</td><td style="color:var(--err)"><b>${esc(m.lastError)}</b><br>Your existing time-off records were kept.</td></tr>` : ''}
+      ${m.lastError ? `<tr><td>Problem</td><td style="color:var(--err)"><b>${esc(m.lastError)}</b><br>Your existing time-off records were kept.${m.lastErrorCode === 'reauth' ? '<br><button class="btn primary sm" data-act="g-connect">Reconnect Google Calendar</button>' : ''}</td></tr>` : ''}
       ${m.lastSummary ? `<tr><td>Last result</td><td>${esc(m.lastSummary)}</td></tr>` : ''}</table>
       <p class="muted">Time off is stored on this computer. Without internet you can still schedule using what was last imported; it may not include newer requests.</p>`;
     const list = [...S.data.pto].sort((a, b) => b.start.localeCompare(a.start));
@@ -360,6 +443,7 @@
     const un = (m.unmatched || []).slice(0, 30);
     return `<div class="page">
       <div class="card"><h3>Google Calendar</h3>${gbox}</div>
+      ${sheetsCard()}
       <div class="card"><h3>Refresh status</h3>${status}</div>
       <div class="card"><h3>Time off on file (${list.length})</h3>
         <div class="row" style="margin-bottom:8px"><select id="pEmp">${emps.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select><input type="date" id="pFrom" aria-label="From"><input type="date" id="pTo" aria-label="To"><select id="pType" aria-label="Type"><option value="off">Off</option><option value="work">Works</option><option value="offat">Off at (time)</option><option value="inat">In at (time)</option><option value="closed">Store closed (everyone)</option></select><input type="text" id="pTime" placeholder="Time, e.g. 10" size="8" aria-label="Time for Off at / In at"><input type="text" id="pNote" placeholder="Note (optional)"><button class="btn" data-act="add-pto">Add time off</button></div>
@@ -373,12 +457,12 @@
       const r = await api.google.fetchPto(S.data.employees.map(e => ({ id: e.id, name: e.name, active: e.active })), S.data.settings);
       edit(d => {
         d.pto = d.pto.filter(p => p.source !== 'google').concat(r.pto);
-        d.ptoMeta = { ...d.ptoMeta, lastRefreshed: r.at, lastAttempt: r.at, lastError: null, unmatched: r.unmatched.slice(0, 100),
+        d.ptoMeta = { ...d.ptoMeta, lastRefreshed: r.at, lastAttempt: r.at, lastError: null, lastErrorCode: null, unmatched: r.unmatched.slice(0, 100),
           lastSummary: `${r.pto.length} time-off entr${r.pto.length === 1 ? 'y' : 'ies'} from ${r.eventCount} calendar event(s)${r.ignoredTimed ? `; ${r.ignoredTimed} timed event(s) ignored` : ''}.` };
       });
       toast('Time off refreshed from Google Calendar.');
     } catch (e) {
-      edit(d => { d.ptoMeta = { ...d.ptoMeta, lastAttempt: new Date().toISOString(), lastError: e.message }; });
+      edit(d => { d.ptoMeta = { ...d.ptoMeta, lastAttempt: new Date().toISOString(), lastError: e.message, lastErrorCode: e.code || null }; });
     }
     S.busy = ''; S.info.google = await api.google.status(); render();
   }
@@ -495,6 +579,10 @@
       case 'del-emp': return delEmp();
       case 'g-saveclient': try { S.info.google = await api.google.saveClient($('#gClientId').value, $('#gClientSecret').value); render(); } catch (e) { alertBox('Could not save', esc(e.message)); } return;
       case 'g-connect': return gConnect();
+      case 'sh-connect': return shConnect();
+      case 'sh-disconnect': if (await confirmBox('Disconnect Google Sheets?', '<p>The Google Sheets sign-in is removed from this computer. Tabs already in the Sheet stay as they are.</p>', 'Disconnect', 'danger')) { S.info.sheets = await api.sheets.disconnect(); S.shTest = null; render(); } return;
+      case 'sh-test': return shTest();
+      case 'sheet-send': return sendWeekToSheet(S.week);
       case 'g-cals': return gCals();
       case 'g-refresh': return gRefresh();
       case 'g-disconnect': if (await confirmBox('Disconnect Google Calendar?', '<p>The sign-in is removed from this computer. Time off already imported stays on file.</p>', 'Disconnect', 'danger')) { S.info.google = await api.google.disconnect(); S.cals = null; render(); } return;
@@ -524,6 +612,7 @@
     if (el.dataset.cell) return commitCell(el);
     if (el.dataset.sup) { edit(() => { const w = ensureWeek(); w.support[el.dataset.sup] = el.value.trim(); stampWeek(w); }); return; }
     if (el.dataset.f) return setEmpField(el);
+    if (el.dataset.sh) return setSheetField(el);
     if (el.dataset.av || el.dataset.pref) return setAvail(el);
     if (el.dataset.cal) { edit(d => { const s = new Set(d.settings.google.calendarIds); el.checked ? s.add(el.dataset.cal) : s.delete(el.dataset.cal); d.settings.google.calendarIds = [...s]; }); return; }
     if (el.dataset.g) { const k = el.dataset.g; edit(d => { d.settings.google[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? +el.value : el.value; }); return; }
@@ -558,6 +647,7 @@
       // jump to the newest saved week if "this week" has nothing yet
       render();
       if (r.autoUpdateCheck) checkUpdates(false);
+      S.info.sheets = r.sheets; retryPendingSheets();
     } catch (e) { $('#view').innerHTML = `<div class="card"><h3>The app could not start</h3><p>${esc(e.message)}</p></div>`; }
   })();
 })();

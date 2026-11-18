@@ -1,5 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
-const call = (name, ...a) => ipcRenderer.invoke(name, ...a).then(r => { if (!r.ok) { const e = new Error(r.error); e.code = r.code; throw e; } return r.value; });
+// Errors lose their custom properties when they cross the context bridge, so calls resolve to {ok, value} / {ok:false, error, code}
+// and renderer/app.js turns the failure back into an Error that keeps its `code`.
+const call = (name, ...a) => ipcRenderer.invoke(name, ...a);
 contextBridge.exposeInMainWorld('api', {
   load: () => call('app:load'),
   save: d => call('data:save', d),
@@ -24,6 +26,13 @@ contextBridge.exposeInMainWorld('api', {
     download: () => call('update:download'),
     apply: () => call('update:apply'),
     page: () => call('update:page'),
+  },
+  sheets: {
+    status: () => call('sheets:status'),
+    connect: () => call('sheets:connect'),
+    disconnect: () => call('sheets:disconnect'),
+    test: id => call('sheets:test', id),
+    send: p => call('sheets:send', p),
   },
   printPdf: (html, name) => call('print:pdf', html, name),
   print: html => call('print:print', html),

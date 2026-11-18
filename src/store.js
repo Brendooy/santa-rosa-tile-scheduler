@@ -36,9 +36,10 @@ function normalize(d) {
   d.meta = d.meta || {};
   if (!d.meta.longDayWarnOff) { d.settings.warnLongDay = false; d.meta.longDayWarnOff = true; }
   d.settings.google = { ...def.google, ...(d.settings.google || {}) };
+  d.settings.sheets = { ...def.sheets, ...(d.settings.sheets || {}) };
   d.settings.locations = d.settings.locations && Object.keys(d.settings.locations).length ? d.settings.locations : def.locations;
   for (const l of Object.values(d.settings.locations)) { if (l.minWarehouse === undefined) l.minWarehouse = 1; if (l.minShowroom === undefined) l.minShowroom = 1; delete l.minOpeners; delete l.minClosers; }
-  d.ptoMeta = { lastRefreshed: null, lastError: null, lastAttempt: null, lastSummary: null, unmatched: [], ...(d.ptoMeta || {}) };
+  d.ptoMeta = { lastRefreshed: null, lastError: null, lastErrorCode: null, lastAttempt: null, lastSummary: null, unmatched: [], ...(d.ptoMeta || {}) };
   d.meta = d.meta || {};
   return d;
 }

@@ -6,6 +6,7 @@ const store = require('./src/store');
 const google = require('./src/google');
 const Logic = require('./src/logic');
 const updater = require('./src/updater');
+const sheets = require('./src/sheets');
 
 app.setName('Santa Rosa Tile Scheduler');
 const TEST = !!process.env.SRTS_DATA_DIR;   // automated tests use an isolated data folder
@@ -66,7 +67,7 @@ h('app:load', () => {
   backupKeep = r.data.settings.backupKeep || 30;
   if (!r.firstRun) autoBackup('on start');
   else store.save(r.data);
-  return { ...r, dataDir, version: app.getVersion(), backups: store.listBackups(), google: google.status(), test: TEST, today: TEST ? process.env.SRTS_TODAY || null : null, autoUpdateCheck: !TEST || !!process.env.SRTS_UPDATE_BASE };
+  return { ...r, dataDir, version: app.getVersion(), backups: store.listBackups(), google: google.status(), sheets: google.status('sheets'), test: TEST, today: TEST ? process.env.SRTS_TODAY || null : null, autoUpdateCheck: !TEST || !!process.env.SRTS_UPDATE_BASE };
 });
 h('data:save', async data => { backupKeep = (data.settings && data.settings.backupKeep) || 30; return await store.save(data); });
 h('backup:list', () => store.listBackups());
@@ -98,6 +99,12 @@ h('google:saveClient', (id, secret) => { google.saveClient(id, secret); return g
 h('google:connect', () => google.connect());
 h('google:disconnect', () => google.disconnect());
 h('google:calendars', () => google.listCalendars());
+// Google Sheets: separate sign-in, one tab per published week
+h('sheets:status', () => google.status('sheets'));
+h('sheets:connect', () => google.connect('sheets'));
+h('sheets:disconnect', () => google.disconnect('sheets'));
+h('sheets:test', id => sheets.test(id));
+h('sheets:send', ({ spreadsheetId, week, data, prior }) => sheets.sendWeek({ spreadsheetId, model: Logic.scheduleToRows(week, data), prior }));
 h('google:fetchPto', async (employees, settings) => {
   const ids = settings.google.calendarIds || [];
   if (!ids.length) throw Object.assign(new Error('Choose at least one calendar first.'), { code: 'no_calendar' });

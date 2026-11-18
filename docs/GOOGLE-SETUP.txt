@@ -46,6 +46,51 @@ C. WHAT MANAGERS DO
    4. Name events like "Brendan - PTO" as ALL-DAY events. The employee's name in
       the Staff tab must appear in the title (first name is enough).
 
+GOOGLE SHEETS: SEND PUBLISHED WEEKS TO A SHARED SHEET  (optional, one time + once per computer)
+=====================================================================================
+When a week is published as final, the app can copy it into ONE shared Google Sheet:
+a new tab "Week of YYYY-MM-DD" per week; older weeks' tabs stay; republishing a week
+overwrites that week's tab. This is a SECOND, separate Google sign-in. The calendar
+sign-in above stays read-only and is not changed.
+
+WHAT THE PERMISSION MEANS: Google calls it "See, edit, create and delete all your
+Google Sheets spreadsheets". While connected, the app can view and edit your Google
+Sheets. The app only writes to the one spreadsheet whose link you give it, only adds/
+overwrites its own "Week of ..." tabs, and never touches any other tab. (It also learns
+the email address of the account that connected, to show it and to name it in messages.)
+
+ONE-TIME SETUP IN GOOGLE CLOUD (same project as above):
+   1. APIs & Services > Library > search "Google Sheets API" > Enable.
+   2. OAuth consent screen / Google Auth Platform > Data access (Scopes) > Add scopes:
+        .../auth/spreadsheets      (and keep .../auth/calendar.readonly)
+      "openid" and "email" are added automatically and need no review.
+   3. If the app is External and "In production" nothing else is needed. If it is still
+      in "Testing", add the Google account(s) that will connect under Test users
+      (and see the 7-day warning below).
+   4. Re-consent: Google only grants the new permission when each person clicks
+      "Connect Google Sheets" in the app and allows it. Existing calendar sign-ins do
+      not include it.
+
+SHARE THE SHEET: open the Google Sheet > Share > add the Google account that will click
+"Connect Google Sheets" as an EDITOR. (Without Editor access the app says "The connected
+Google account can't edit this Sheet. Share it with <email> as Editor.")
+
+IN THE APP (each computer, once):
+   Time off & Google tab > "Google Sheet for published schedules":
+   1. Click "Connect Google Sheets", sign in with the account that is an Editor, Allow.
+   2. Paste the Google Sheet link into "Google Sheet link".
+   3. Click "Test connection": it shows the spreadsheet's title and who is connected.
+   4. Leave "Send to Google Sheet when I publish" ticked. Publishing a week now sends it.
+   Schedule tab: "Send this week to Google Sheet" re-sends a published week by hand; the
+   line next to it says "Sent to Google Sheet 3:04 PM" or "Not sent: <reason>" in red.
+   If a send fails (offline, Google busy) the week stays published and is retried the next
+   time the app starts, or when you click the button. Reopening a week as a draft does not
+   change the Sheet: its tab keeps the last published version.
+
+The Sheets sign-in token is stored encrypted as google-sheets-auth.bin in the data folder.
+It is never exported. Disconnect it with the Disconnect button in that card, or at
+https://myaccount.google.com/permissions
+
 SECURITY NOTES
   - The sign-in token is stored encrypted with Windows (tied to the Windows user
     account) in the data folder as google-auth.bin. It is never part of "Export
@@ -56,8 +101,12 @@ SECURITY NOTES
 
 TROUBLESHOOTING
   "Google hasn't verified this app"  Expected for external, unverified apps (see A3).
-  "Access was revoked or expired"    Click Connect again (happens after 7 days if the
-                                     consent screen is still in Testing).
+  "Access was revoked or expired"    Click "Reconnect" (the app shows a Reconnect button
+                                     for Calendar and for Sheets). Google expires sign-ins
+                                     after about 7 days while the consent screen is in
+                                     "Testing"; publish the app to stop this (step A3).
   "Calendar API may not be enabled"  Repeat step A2 in the same project.
+  "Google Sheets API is not turned on"  Enable the Google Sheets API (Sheets setup, step 1).
+  "Sheet not found. Check the link." Paste the full link of the spreadsheet again.
   Nothing imports                    Check the event is ALL-DAY and the title includes
                                      the employee's name; see "not matched" list.

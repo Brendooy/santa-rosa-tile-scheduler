@@ -93,6 +93,19 @@ TIME OFF & GOOGLE TAB
     refresh fails, your existing time off is kept and a red banner says so.
     Time off added in Google since the last refresh will NOT show until you refresh.
 
+GOOGLE SHEET FOR PUBLISHED SCHEDULES (Time off & Google tab, optional)
+  - Connect Google Sheets (a separate sign-in from the calendar one), paste the link of
+    the shared Google Sheet, click Test connection. The connected Google account must be
+    an Editor of that Sheet. Setup steps are in GOOGLE-SETUP.txt.
+  - When you publish a week it is copied to a new tab "Week of YYYY-MM-DD" (newest on the
+    left). Publishing the same week again overwrites that week's tab; older weeks stay.
+    Reopening a week as a draft does not touch the Sheet.
+  - Schedule tab: "Send this week to Google Sheet" sends a published week by hand and the
+    line beside it shows "Sent to Google Sheet <time>" or "Not sent: <reason>". A failed
+    send never undoes the publish; it is retried when the app starts or when you click.
+  - Do not type in the generated tabs: they are overwritten when the week is republished.
+  - After an update, click "Connect Google Sheets" once on each computer.
+
 DATA & BACKUPS TAB
   - Export All Data / Import Data: move everything to another computer. Import
     shows what will be replaced, asks you to confirm, and backs up your current

@@ -29,6 +29,7 @@ function defaultSettings() {
     rampMinutes: 60,         // minimum-headcount check ignores this long after opening and before closing
     backupKeep: 30,
     google: { calendarIds: [], keywords: 'pto,vacation,off,sick,holiday', requireKeyword: false, daysBack: 7, daysAhead: 180 },
+    sheets: { spreadsheetId: '', sendOnPublish: true },   // shared Google Sheet that published weeks are copied to (the ID is safe to export; the sign-in never is)
     printTitle: 'SANTA ROSA TILE SUPPLY SCHEDULE',
     printNote: '-SCHEDULE MAY BE SUBJECT TO CHANGE-',
   };

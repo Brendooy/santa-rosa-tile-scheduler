@@ -5,6 +5,7 @@ No install: extract the ZIP from the latest release and run `Santa Rosa Tile Sch
 
 - Data is stored locally in `%APPDATA%\Santa Rosa Tile Scheduler` with automatic backups.
 - Optional read-only Google Calendar import of time off (needs a `google-client.json`, see `docs/GOOGLE-SETUP.txt`; that file is never committed).
+- Optional: published weeks are copied to a shared Google Sheet (one tab per week) via a separate Google Sheets sign-in; see `docs/GOOGLE-SETUP.txt`.
 - The app checks this repo's latest release on start and offers to update itself.
 
 ## Develop
